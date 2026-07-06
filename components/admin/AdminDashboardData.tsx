@@ -279,6 +279,7 @@ export async function AdminDashboardData({ context }: Props) {
         organizations={organizations}
         activeAccessByUser={activeAccessByUser}
         isSuperAdmin={false}
+        isOrgAdmin={context.isOrgAdmin}
         currentUserId={context.userId}
         scopedOrgId={context.scopedOrgId}
       />

@@ -28,6 +28,7 @@ export type UsersTableProps = {
   organizations: AdminOrganizationRow[]
   activeAccessByUser: Record<string, string[]>
   isSuperAdmin: boolean
+  isOrgAdmin?: boolean
   currentUserId: string
   orgFilter?: string | null
 }
@@ -63,6 +64,7 @@ export function UsersTable({
   organizations,
   activeAccessByUser,
   isSuperAdmin,
+  isOrgAdmin = false,
   currentUserId,
   orgFilter,
 }: UsersTableProps) {
@@ -172,7 +174,13 @@ export function UsersTable({
         profile.org_nume ??
         (profile.org_id ? orgNameById.get(profile.org_id) ?? null : null)
       const isOrgAdminPeer = !isSuperAdmin && role === "org_admin"
-      const canEditRole = isSuperAdmin && !isCurrentUser && role !== "super_admin"
+      // super_admin: poate edita orice rol în afară de super_admin și el însuși
+      // org_admin: poate edita userii din propria org, dar nu super_admini și nu alți org_admini
+      const canEditRole =
+        (isSuperAdmin || isOrgAdmin) &&
+        !isCurrentUser &&
+        role !== "super_admin" &&
+        !(isOrgAdmin && role === "org_admin")
       const canDelete = !isCurrentUser && !isOrgAdminPeer
       const userAccess = activeAccessByUser[profile.id] ?? []
       return { profile, orgName, isCurrentUser, canEditRole, canDelete, isAdminRole, userAccess }
@@ -221,7 +229,7 @@ export function UsersTable({
             >
               <option value="user">User</option>
               <option value="org_admin">Org Admin</option>
-              <option value="super_admin">Super Admin</option>
+              {isSuperAdmin && <option value="super_admin">Super Admin</option>}
             </select>
           ) : (
             <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${ROLE_BADGE[role]}`}>

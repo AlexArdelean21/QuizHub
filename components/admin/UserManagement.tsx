@@ -15,6 +15,7 @@ type UserManagementProps = {
   organizations: AdminOrganizationRow[]
   activeAccessByUser: Record<string, string[]>
   isSuperAdmin: boolean
+  isOrgAdmin?: boolean
   currentUserId: string
   scopedOrgId?: string | null
 }
@@ -25,6 +26,7 @@ export function UserManagement({
   organizations,
   activeAccessByUser,
   isSuperAdmin,
+  isOrgAdmin = false,
   currentUserId,
   scopedOrgId,
 }: UserManagementProps) {
@@ -95,6 +97,7 @@ export function UserManagement({
             organizations={organizations}
             activeAccessByUser={activeAccessByUser}
             isSuperAdmin={isSuperAdmin}
+            isOrgAdmin={isOrgAdmin}
             currentUserId={currentUserId}
             orgFilter={scopedOrgId}
           />

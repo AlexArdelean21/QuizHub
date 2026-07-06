@@ -1696,9 +1696,9 @@ export async function assignUserToOrganization(input: {
 }
 
 export async function updateUserRole(input: { userId: string; role: AppRole }) {
-  // Role changes are a super_admin-only privilege. Org admins must never be
-  // able to escalate themselves or change peers — even within their org.
-  const context = await assertSuperAdminActor()
+  // Permite atât super_admin cât și org_admin să apeleze această funcție.
+  // org_admin are restricții suplimentare definite mai jos.
+  const context = await assertAdminActor()
   const adminSupabase = getAdminServiceClient()
   const userId = String(input.userId ?? "")
   const role = normalizeRole(input.role)
@@ -1707,16 +1707,36 @@ export async function updateUserRole(input: { userId: string; role: AppRole }) {
     throw new Error("Rol invalid.")
   }
 
+  // ensureUserInScope verifică automat că org_admin nu poate acționa în afara
+  // propriei org și nu poate vedea super_admini (sandbox existent).
   const target = await ensureUserInScope(adminSupabase, context, userId)
 
   if (target.id === context.userId) {
     throw new Error("Nu îți poți modifica propriul rol.")
   }
+
+  // Restricții pentru org_admin:
+  if (!context.isSuperAdmin) {
+    // org_admin nu poate promova la super_admin
+    if (role === "super_admin") {
+      throw new Error("Nu ai permisiunea să atribui rolul de Super Admin.")
+    }
+    // org_admin nu poate retrograda alt org_admin (doar super_admin poate)
+    if (target.role === "org_admin" && role !== "org_admin") {
+      throw new Error("Nu ai permisiunea să modifici rolul unui administrator.")
+    }
+    // org_admin trebuie să aibă un scopedOrgId valid
+    if (!context.scopedOrgId) {
+      throw new Error("Contul tău nu este asociat unei organizații.")
+    }
+  }
+
   if (role === "org_admin" && !target.org_id) {
     throw new Error("Atribuie întâi o organizație utilizatorului.")
   }
 
-  // Enforcement: verifică limita de admini înainte de promovare
+  // Enforcement: verifică limita de admini înainte de promovare.
+  // Se aplică atât pentru super_admin cât și pentru org_admin.
   if (role === "org_admin" && target.org_id) {
     await assertOrgLimit(adminSupabase, target.org_id, "admini", "administratori", "Pro")
   }
