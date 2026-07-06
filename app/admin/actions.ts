@@ -117,6 +117,64 @@ async function ensureUserInScope(
   }
 }
 
+/**
+ * Verifică limitele organizației înainte de a crea o resursă nouă.
+ * Aruncă o eroare clară dacă limita e atinsă.
+ * Nu face nimic dacă org-ul e managed_manually (bypass complet).
+ *
+ * @param supabaseClient - clientul Supabase cu drepturi de service role
+ * @param orgId - UUID-ul organizației
+ * @param resource - 'useri' | 'admini' | 'examene' | 'tokeni'
+ * @param resourceLabel - text pentru mesajul de eroare (ex: "utilizatori", "examene")
+ * @param upgradeHint - tier sugerat pentru upgrade (ex: "Pro")
+ */
+async function assertOrgLimit(
+  supabaseClient: AdminServiceClient,
+  orgId: string,
+  resource: "useri" | "admini" | "examene" | "tokeni",
+  resourceLabel: string,
+  upgradeHint: string = "Pro"
+): Promise<void> {
+  const { data, error } = await supabaseClient.rpc("check_org_limits", {
+    p_org_id: orgId,
+    p_resource: resource,
+  })
+
+  if (error) {
+    console.error("[assertOrgLimit] RPC error:", error.message)
+    throw new Error(
+      "Nu s-a putut verifica limita organizației. Încearcă din nou sau contactează suportul."
+    )
+  }
+
+  const result = data as {
+    allowed: boolean
+    current?: number
+    max?: number
+    remaining?: number
+    managed_manually?: boolean
+    error?: string
+  }
+
+  // Org managed manual → bypass complet
+  if (result.managed_manually) return
+
+  // Eroare de configurare (org_not_found, invalid_resource) → blocăm
+  if (result.error) {
+    console.error("[assertOrgLimit] Unexpected result:", result.error)
+    throw new Error(
+      "Eroare la verificarea limitelor organizației: " + result.error
+    )
+  }
+
+  if (!result.allowed) {
+    throw new Error(
+      `Limita de ${resourceLabel} a fost atinsă (${result.current ?? "?"}/${result.max ?? "?"}).` +
+        ` Treci la planul ${upgradeHint} pentru a adăuga mai mulți ${resourceLabel}.`
+    )
+  }
+}
+
 type ParsedExamQuestion = {
   intrebare_text: string
   /** Ordered variant texts (2..10). */
@@ -1079,6 +1137,15 @@ export async function importExamFromJson(formData: FormData) {
       throw new Error("Contul tău nu este asociat unei organizații.")
     }
 
+    // Enforcement: verifică limita de examene înainte de creare
+    // super_admin cu org explicită → verifică limita acelei org
+    // super_admin fără org → bypass (creează examen global, fără org_id)
+    // org_admin → verifică întotdeauna (targetOrgId e mereu setat)
+    if (targetOrgId) {
+      const adminSupabase = getAdminServiceClient()
+      await assertOrgLimit(adminSupabase, targetOrgId, "examene", "examene", "Pro")
+    }
+
     const { data: createdExam, error: createExamError } = await actorSupabase
       .from("examene")
       .insert({ nume_examen: examName, org_id: targetOrgId })
@@ -1237,6 +1304,15 @@ export async function importExamFromExcel(formData: FormData) {
 
     if (!targetOrgId && !context.isSuperAdmin) {
       throw new Error("Contul tău nu este asociat unei organizații.")
+    }
+
+    // Enforcement: verifică limita de examene înainte de creare
+    // super_admin cu org explicită → verifică limita acelei org
+    // super_admin fără org → bypass (creează examen global, fără org_id)
+    // org_admin → verifică întotdeauna (targetOrgId e mereu setat)
+    if (targetOrgId) {
+      const adminSupabase = getAdminServiceClient()
+      await assertOrgLimit(adminSupabase, targetOrgId, "examene", "examene", "Pro")
     }
 
     const { data: createdExam, error: createExamError } = await actorSupabase
@@ -1640,6 +1716,11 @@ export async function updateUserRole(input: { userId: string; role: AppRole }) {
     throw new Error("Atribuie întâi o organizație utilizatorului.")
   }
 
+  // Enforcement: verifică limita de admini înainte de promovare
+  if (role === "org_admin" && target.org_id) {
+    await assertOrgLimit(adminSupabase, target.org_id, "admini", "administratori", "Pro")
+  }
+
   const { error } = await adminSupabase.from("profiles").update({ role }).eq("id", userId)
   if (error) throw new Error(error.message)
   revalidatePath("/admin/global")
@@ -1670,6 +1751,10 @@ export async function generateInviteToken(orgId: string): Promise<{
   if (!org.invite_links_enabled) {
     throw new Error("Invite links nu sunt activate pentru această organizație.")
   }
+
+  // Enforcement: verifică limita de useri înainte de a genera un token de invitație
+  const adminSupabase = getAdminServiceClient()
+  await assertOrgLimit(adminSupabase, orgId, "useri", "utilizatori", "Pro")
 
   // Generate cryptographically random token (32 bytes → 64 hex chars)
   const token = randomBytes(32).toString("hex")

@@ -307,6 +307,7 @@ export function ExamManagement({
           })
           router.refresh()
         } catch (error) {
+          console.error("Create exam import failed:", error)
           pushToast({
             type: "error",
             message: error instanceof Error ? error.message : "Nu s-a putut crea examenul.",
@@ -377,6 +378,7 @@ export function ExamManagement({
           })
           router.refresh()
         } catch (error) {
+          console.error("Create exam import failed:", error)
           pushToast({
             type: "error",
             message: error instanceof Error ? error.message : "Nu s-a putut crea examenul.",
@@ -796,7 +798,9 @@ export function ExamManagement({
           )}
 
           {toast ? (
-            <div className={`mt-4 rounded-md border px-3 py-2 text-sm ${toastClasses}`}>
+            <div
+              className={`fixed bottom-6 right-6 z-[200] w-full max-w-sm rounded-xl border px-4 py-3 text-center text-sm font-medium shadow-xl pointer-events-none transition-all duration-300 ${toastClasses}`}
+            >
               {toast.message}
             </div>
           ) : null}
