@@ -11,6 +11,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Home,
+  Layers,
   LayoutDashboard,
   Link2,
   LogOut,
@@ -234,6 +235,12 @@ export function AdminLayoutShell({
       href: "/admin/global",
       label: "Organizații",
       icon: Building2,
+      show: isSuperAdmin,
+    },
+    {
+      href: "/admin/tiers",
+      label: "Tiers & Planuri",
+      icon: Layers,
       show: isSuperAdmin,
     },
   ].filter((item) => item.show)

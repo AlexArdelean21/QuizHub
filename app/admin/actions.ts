@@ -1805,3 +1805,341 @@ export async function setMyShareStatsEnabled(enabled: boolean): Promise<void> {
   if (error) throw new Error(error.message)
   revalidatePath("/dashboard/admin/elevi")
 }
+
+// ---------------------------------------------------------------------------
+// Tiers & organization plan management (super_admin only)
+//
+// These actions power /admin/tiers. Every mutation runs through the service
+// role client (RLS bypass) but is gated behind `assertSuperAdminActor()` so an
+// org_admin can never reach the writes. They return a plain `{ error }` shape
+// instead of throwing so the client can render inline toasts without a boundary.
+// ---------------------------------------------------------------------------
+
+type ActionResult = { error: string | null }
+
+type PlanTierUpdate = {
+  max_admini?: number
+  max_useri?: number
+  max_examene?: number
+  tokeni_lunari?: number
+  pret_luna?: number
+  pret_an?: number
+  este_activ?: boolean
+}
+
+type OrgLimitsUpdate = {
+  max_admini?: number
+  max_useri?: number
+  max_examene?: number
+  tokeni_lunari?: number
+  ai_import_enabled?: boolean
+}
+
+type OrgSubscriptionStatus = "active" | "past_due" | "suspended" | "canceled"
+
+const ORG_SUBSCRIPTION_STATUSES: OrgSubscriptionStatus[] = [
+  "active",
+  "past_due",
+  "suspended",
+  "canceled",
+]
+
+function toActionError(error: unknown): ActionResult {
+  if (error instanceof AdminAccessError) return { error: error.message }
+  if (error instanceof Error) return { error: error.message }
+  return { error: "A apărut o eroare neașteptată." }
+}
+
+/** Positive integer validation for limit fields (must be > 0). */
+function readPositiveInt(value: number | undefined, label: string): number | undefined {
+  if (value === undefined) return undefined
+  const n = Math.floor(Number(value))
+  if (!Number.isFinite(n) || n <= 0) {
+    throw new Error(`${label} trebuie să fie un număr întreg pozitiv.`)
+  }
+  return n
+}
+
+/** Non-negative money validation for price fields (must be >= 0). */
+function readNonNegativeNumber(value: number | undefined, label: string): number | undefined {
+  if (value === undefined) return undefined
+  const n = Number(value)
+  if (!Number.isFinite(n) || n < 0) {
+    throw new Error(`${label} nu poate fi negativ.`)
+  }
+  return n
+}
+
+export async function updatePlanTier(
+  tierId: number,
+  data: PlanTierUpdate
+): Promise<ActionResult> {
+  try {
+    await assertSuperAdminActor()
+    const adminSupabase = getAdminServiceClient()
+
+    if (!Number.isFinite(tierId) || tierId <= 0) {
+      return { error: "Tier invalid." }
+    }
+
+    const update: Record<string, number | boolean> = {}
+    const maxAdmini = readPositiveInt(data.max_admini, "Numărul de admini")
+    if (maxAdmini !== undefined) update.max_admini = maxAdmini
+    const maxUseri = readPositiveInt(data.max_useri, "Numărul de useri")
+    if (maxUseri !== undefined) update.max_useri = maxUseri
+    const maxExamene = readPositiveInt(data.max_examene, "Numărul de examene")
+    if (maxExamene !== undefined) update.max_examene = maxExamene
+    const tokeni = readPositiveInt(data.tokeni_lunari, "Tokenii lunari")
+    if (tokeni !== undefined) update.tokeni_lunari = tokeni
+    const pretLuna = readNonNegativeNumber(data.pret_luna, "Prețul lunar")
+    if (pretLuna !== undefined) update.pret_luna = pretLuna
+    const pretAn = readNonNegativeNumber(data.pret_an, "Prețul anual")
+    if (pretAn !== undefined) update.pret_an = pretAn
+    if (data.este_activ !== undefined) update.este_activ = Boolean(data.este_activ)
+
+    if (Object.keys(update).length === 0) {
+      return { error: "Nu există modificări de salvat." }
+    }
+
+    const { error } = await adminSupabase.from("plan_tiers").update(update).eq("id", tierId)
+    if (error) return { error: error.message }
+
+    revalidatePath("/admin/tiers")
+    return { error: null }
+  } catch (error) {
+    return toActionError(error)
+  }
+}
+
+export async function updateOrgTier(orgId: string, tierId: number): Promise<ActionResult> {
+  try {
+    await assertSuperAdminActor()
+    const adminSupabase = getAdminServiceClient()
+
+    const id = String(orgId ?? "")
+    if (!id) return { error: "ID-ul organizației lipsește." }
+    if (!Number.isFinite(tierId) || tierId <= 0) return { error: "Tier invalid." }
+
+    const { data: org, error: orgError } = await adminSupabase
+      .from("organizatii")
+      .select("is_managed_manually")
+      .eq("id", id)
+      .maybeSingle()
+    if (orgError) return { error: orgError.message }
+    if (!org) return { error: "Organizația nu există." }
+
+    const update: Record<string, unknown> = { tier_id: tierId }
+
+    // Organizations still governed by the tier system inherit the tier's
+    // limits immediately. Manually managed orgs keep their custom overrides.
+    if (!org.is_managed_manually) {
+      const { data: tier, error: tierError } = await adminSupabase
+        .from("plan_tiers")
+        .select("max_admini, max_useri, max_examene, tokeni_lunari")
+        .eq("id", tierId)
+        .maybeSingle()
+      if (tierError) return { error: tierError.message }
+      if (!tier) return { error: "Tier-ul selectat nu există." }
+      update.max_admini = tier.max_admini
+      update.max_useri = tier.max_useri
+      update.max_examene = tier.max_examene
+      update.tokeni_lunari = tier.tokeni_lunari
+    }
+
+    const { error } = await adminSupabase.from("organizatii").update(update).eq("id", id)
+    if (error) return { error: error.message }
+
+    revalidatePath("/admin/tiers")
+    return { error: null }
+  } catch (error) {
+    return toActionError(error)
+  }
+}
+
+export async function updateOrgStatus(
+  orgId: string,
+  status: OrgSubscriptionStatus
+): Promise<ActionResult> {
+  try {
+    await assertSuperAdminActor()
+    const adminSupabase = getAdminServiceClient()
+
+    const id = String(orgId ?? "")
+    if (!id) return { error: "ID-ul organizației lipsește." }
+    if (!ORG_SUBSCRIPTION_STATUSES.includes(status)) {
+      return { error: "Status invalid." }
+    }
+
+    const { data: org, error: orgError } = await adminSupabase
+      .from("organizatii")
+      .select("past_due_at, suspended_at")
+      .eq("id", id)
+      .maybeSingle()
+    if (orgError) return { error: orgError.message }
+    if (!org) return { error: "Organizația nu există." }
+
+    const nowIso = new Date().toISOString()
+    const update: Record<string, unknown> = { subscription_status: status }
+
+    if (status === "past_due" && !org.past_due_at) {
+      update.past_due_at = nowIso
+    } else if (status === "suspended" && !org.suspended_at) {
+      update.suspended_at = nowIso
+    } else if (status === "active") {
+      update.past_due_at = null
+      update.suspended_at = null
+    }
+
+    const { error } = await adminSupabase.from("organizatii").update(update).eq("id", id)
+    if (error) return { error: error.message }
+
+    revalidatePath("/admin/tiers")
+    return { error: null }
+  } catch (error) {
+    return toActionError(error)
+  }
+}
+
+export async function updateOrgLimits(
+  orgId: string,
+  data: OrgLimitsUpdate
+): Promise<ActionResult> {
+  try {
+    await assertSuperAdminActor()
+    const adminSupabase = getAdminServiceClient()
+
+    const id = String(orgId ?? "")
+    if (!id) return { error: "ID-ul organizației lipsește." }
+
+    const { data: org, error: orgError } = await adminSupabase
+      .from("organizatii")
+      .select("is_managed_manually")
+      .eq("id", id)
+      .maybeSingle()
+    if (orgError) return { error: orgError.message }
+    if (!org) return { error: "Organizația nu există." }
+    if (!org.is_managed_manually) {
+      return { error: "Organizația nu e în mod manual." }
+    }
+
+    const update: Record<string, number | boolean> = {}
+    const maxAdmini = readPositiveInt(data.max_admini, "Numărul de admini")
+    if (maxAdmini !== undefined) update.max_admini = maxAdmini
+    const maxUseri = readPositiveInt(data.max_useri, "Numărul de useri")
+    if (maxUseri !== undefined) update.max_useri = maxUseri
+    const maxExamene = readPositiveInt(data.max_examene, "Numărul de examene")
+    if (maxExamene !== undefined) update.max_examene = maxExamene
+    const tokeni = readPositiveInt(data.tokeni_lunari, "Tokenii lunari")
+    if (tokeni !== undefined) update.tokeni_lunari = tokeni
+    if (data.ai_import_enabled !== undefined) {
+      update.ai_import_enabled = Boolean(data.ai_import_enabled)
+    }
+
+    if (Object.keys(update).length === 0) {
+      return { error: "Nu există modificări de salvat." }
+    }
+
+    const { error } = await adminSupabase.from("organizatii").update(update).eq("id", id)
+    if (error) return { error: error.message }
+
+    revalidatePath("/admin/tiers")
+    return { error: null }
+  } catch (error) {
+    return toActionError(error)
+  }
+}
+
+export async function updateOrgAiImport(
+  orgId: string,
+  enabled: boolean
+): Promise<ActionResult> {
+  try {
+    await assertSuperAdminActor()
+    const adminSupabase = getAdminServiceClient()
+
+    const id = String(orgId ?? "")
+    if (!id) return { error: "ID-ul organizației lipsește." }
+
+    const { error } = await adminSupabase
+      .from("organizatii")
+      .update({ ai_import_enabled: Boolean(enabled) })
+      .eq("id", id)
+    if (error) return { error: error.message }
+
+    revalidatePath("/admin/tiers")
+    return { error: null }
+  } catch (error) {
+    return toActionError(error)
+  }
+}
+
+export async function updateOrgManualMode(
+  orgId: string,
+  isManual: boolean
+): Promise<ActionResult> {
+  try {
+    await assertSuperAdminActor()
+    const adminSupabase = getAdminServiceClient()
+
+    const id = String(orgId ?? "")
+    if (!id) return { error: "ID-ul organizației lipsește." }
+
+    const update: Record<string, unknown> = { is_managed_manually: Boolean(isManual) }
+
+    // Returning to tier-managed mode wipes any manual overrides by re-applying
+    // the current tier's limits. Orgs without a tier keep their existing values.
+    if (!isManual) {
+      const { data: org, error: orgError } = await adminSupabase
+        .from("organizatii")
+        .select("tier_id")
+        .eq("id", id)
+        .maybeSingle()
+      if (orgError) return { error: orgError.message }
+      if (!org) return { error: "Organizația nu există." }
+
+      if (org.tier_id != null) {
+        const { data: tier, error: tierError } = await adminSupabase
+          .from("plan_tiers")
+          .select("max_admini, max_useri, max_examene, tokeni_lunari")
+          .eq("id", org.tier_id)
+          .maybeSingle()
+        if (tierError) return { error: tierError.message }
+        if (tier) {
+          update.max_admini = tier.max_admini
+          update.max_useri = tier.max_useri
+          update.max_examene = tier.max_examene
+          update.tokeni_lunari = tier.tokeni_lunari
+        }
+      }
+    }
+
+    const { error } = await adminSupabase.from("organizatii").update(update).eq("id", id)
+    if (error) return { error: error.message }
+
+    revalidatePath("/admin/tiers")
+    return { error: null }
+  } catch (error) {
+    return toActionError(error)
+  }
+}
+
+export async function resetOrgTokens(orgId: string): Promise<ActionResult> {
+  try {
+    await assertSuperAdminActor()
+    const adminSupabase = getAdminServiceClient()
+
+    const id = String(orgId ?? "")
+    if (!id) return { error: "ID-ul organizației lipsește." }
+
+    const { error } = await adminSupabase
+      .from("organizatii")
+      .update({ tokeni_consumati_luna: 0 })
+      .eq("id", id)
+    if (error) return { error: error.message }
+
+    revalidatePath("/admin/tiers")
+    return { error: null }
+  } catch (error) {
+    return toActionError(error)
+  }
+}
