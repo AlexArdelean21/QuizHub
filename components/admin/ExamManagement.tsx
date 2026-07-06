@@ -126,6 +126,8 @@ export function ExamManagement({
   const [previewSummary, setPreviewSummary] = useState<PreviewSummary | null>(null)
   const [previewSkippedRows, setPreviewSkippedRows] = useState(0)
   const [toast, setToast] = useState<ToastState>(null)
+  const [createError, setCreateError] = useState<string | null>(null)
+  const [previewInfo, setPreviewInfo] = useState<string | null>(null)
   const [editTargetExam, setEditTargetExam] = useState<AdminExamRow | null>(null)
   const [editExamName, setEditExamName] = useState("")
   const [editFile, setEditFile] = useState<File | null>(null)
@@ -231,6 +233,8 @@ export function ExamManagement({
     setShowFormatGuide(false)
     setShowJsonGuide(false)
     setShowTextGuide(false)
+    setCreateError(null)
+    setPreviewInfo(null)
   }
 
   const handlePreview = () => {
@@ -273,18 +277,14 @@ export function ExamManagement({
           setPreviewRows(result.rows)
           setPreviewSummary(result.summary)
           setPreviewSkippedRows(result.skippedRows)
-          pushToast({
-            type: "success",
-            message: `Preview gata: ${result.summary.total} întrebări procesate.`,
-          })
+          setCreateError(null)
+          setPreviewInfo(`Preview gata: ${result.summary.total} întrebări procesate.`)
         } catch (error) {
           setPreviewRows([])
           setPreviewSummary(null)
           setPreviewSkippedRows(0)
-          pushToast({
-            type: "error",
-            message: error instanceof Error ? error.message : "Nu s-a putut genera preview-ul.",
-          })
+          setPreviewInfo(null)
+          setCreateError(error instanceof Error ? error.message : "Nu s-a putut genera preview-ul.")
         }
       })()
     })
@@ -300,6 +300,7 @@ export function ExamManagement({
           formData.set("examName", examName.trim())
           if (isSuperAdmin && createOrgId) formData.set("orgId", createOrgId)
           const result = await importExamFromJson(formData)
+          setCreateError(null)
           handleClosePopup()
           pushToast({
             type: "success",
@@ -308,10 +309,7 @@ export function ExamManagement({
           router.refresh()
         } catch (error) {
           console.error("Create exam import failed:", error)
-          pushToast({
-            type: "error",
-            message: error instanceof Error ? error.message : "Nu s-a putut crea examenul.",
-          })
+          setCreateError(error instanceof Error ? error.message : "Nu s-a putut crea examenul.")
         }
       })()
     })
@@ -321,10 +319,8 @@ export function ExamManagement({
     if (!plainText.trim()) return
     const parsed = parsePlainTextToQuestions(plainText)
     if (!parsed.questions.length) {
-      pushToast({
-        type: "error",
-        message: "Nu am găsit întrebări valide în text. Verifică formatul.",
-      })
+      setPreviewInfo(null)
+      setCreateError("Nu am găsit întrebări valide în text. Verifică formatul.")
       return
     }
     startPreviewTransition(() => {
@@ -336,18 +332,14 @@ export function ExamManagement({
           setPreviewRows(result.rows)
           setPreviewSummary(result.summary)
           setPreviewSkippedRows(result.skippedRows)
-          pushToast({
-            type: "success",
-            message: `Preview gata: ${result.summary.total} întrebări procesate.`,
-          })
+          setCreateError(null)
+          setPreviewInfo(`Preview gata: ${result.summary.total} întrebări procesate.`)
         } catch (error) {
           setPreviewRows([])
           setPreviewSummary(null)
           setPreviewSkippedRows(0)
-          pushToast({
-            type: "error",
-            message: error instanceof Error ? error.message : "Nu s-a putut genera preview-ul.",
-          })
+          setPreviewInfo(null)
+          setCreateError(error instanceof Error ? error.message : "Nu s-a putut genera preview-ul.")
         }
       })()
     })
@@ -371,6 +363,7 @@ export function ExamManagement({
           formData.set("examName", examName.trim())
           if (isSuperAdmin && createOrgId) formData.set("orgId", createOrgId)
           const result = await importExamFromJson(formData)
+          setCreateError(null)
           handleClosePopup()
           pushToast({
             type: "success",
@@ -379,10 +372,7 @@ export function ExamManagement({
           router.refresh()
         } catch (error) {
           console.error("Create exam import failed:", error)
-          pushToast({
-            type: "error",
-            message: error instanceof Error ? error.message : "Nu s-a putut crea examenul.",
-          })
+          setCreateError(error instanceof Error ? error.message : "Nu s-a putut crea examenul.")
         }
       })()
     })
@@ -400,6 +390,7 @@ export function ExamManagement({
             formData.set("orgId", createOrgId)
           }
           const result = await importExamFromExcel(formData)
+          setCreateError(null)
           handleClosePopup()
           pushToast({
             type: "success",
@@ -408,10 +399,7 @@ export function ExamManagement({
           router.refresh()
         } catch (error) {
           console.error("Create exam import failed:", error)
-          pushToast({
-            type: "error",
-            message: error instanceof Error ? error.message : "Nu s-a putut crea examenul.",
-          })
+          setCreateError(error instanceof Error ? error.message : "Nu s-a putut crea examenul.")
         }
       })()
     })
@@ -799,7 +787,7 @@ export function ExamManagement({
 
           {toast ? (
             <div
-              className={`fixed bottom-6 right-6 z-[200] w-full max-w-sm rounded-xl border px-4 py-3 text-center text-sm font-medium shadow-xl pointer-events-none transition-all duration-300 ${toastClasses}`}
+              className={`fixed top-6 right-6 z-[200] w-full max-w-sm rounded-xl border px-4 py-3 text-center text-sm font-medium shadow-xl pointer-events-none transition-all duration-300 ${toastClasses}`}
             >
               {toast.message}
             </div>
@@ -1172,6 +1160,18 @@ c) 100 Hz`}
                 </div>
               ) : null}
             </div>
+
+            {previewInfo ? (
+              <div className="mt-3 rounded-lg border border-green-200 bg-green-50 px-3 py-2.5 text-sm text-green-700 dark:border-green-800/50 dark:bg-green-900/20 dark:text-green-400">
+                {previewInfo}
+              </div>
+            ) : null}
+
+            {createError ? (
+              <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400">
+                {createError}
+              </div>
+            ) : null}
 
             <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
               <Button
