@@ -79,7 +79,7 @@ export function NewOrgSignupForm({ tiers, enterpriseTier }: NewOrgSignupFormProp
     setIsSubmitting(true)
     try {
       const supabase = getSupabaseBrowserClient()
-      const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent("/dashboard/admin")}`
+      const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent("/admin")}`
       // The org intent is carried in user metadata and consumed in
       // /auth/callback once the email is confirmed (a session only exists then).
       const { data, error } = await supabase.auth.signUp({
@@ -99,7 +99,14 @@ export function NewOrgSignupForm({ tiers, enterpriseTier }: NewOrgSignupFormProp
         return
       }
 
-      if (data.user) {
+      // With email confirmations on, signing up with an already-registered email
+      // returns an obfuscated user with an empty `identities` array (Supabase
+      // anti-enumeration). Its id doesn't exist, so recording consent would 404
+      // and no org would be created. Skip it, but keep the same "check your email"
+      // UI so existence isn't revealed.
+      const isExistingUser =
+        Array.isArray(data.user?.identities) && data.user.identities.length === 0
+      if (data.user && !isExistingUser) {
         await recordSignupConsent(data.user.id)
       }
 

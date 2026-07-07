@@ -89,9 +89,11 @@ export async function GET(request: NextRequest) {
         },
       })
 
+      // The admin dashboard lives at /admin (getAdminContext admits org_admin);
+      // /dashboard/admin has only a layout and no index page, so it 404s.
       const target = result.success
-        ? "/dashboard/admin"
-        : `/dashboard?org_error=${encodeURIComponent(result.error)}`
+        ? "/admin"
+        : `/?org_error=${encodeURIComponent(result.error)}`
 
       const orgResponse = NextResponse.redirect(new URL(target, requestUrl.origin))
       response.cookies.getAll().forEach((cookie) => {

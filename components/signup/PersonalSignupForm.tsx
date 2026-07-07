@@ -51,7 +51,7 @@ export function PersonalSignupForm() {
     setIsSubmitting(true)
     try {
       const supabase = getSupabaseBrowserClient()
-      const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent("/dashboard")}`
+      const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent("/")}`
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -63,7 +63,13 @@ export function PersonalSignupForm() {
         return
       }
 
-      if (data.user) {
+      // With email confirmations on, signing up with an already-registered email
+      // returns an obfuscated user with an empty `identities` array (Supabase
+      // anti-enumeration). Its id doesn't exist, so recording consent would 404.
+      // Skip it, but keep the same "check your email" UI so existence isn't revealed.
+      const isExistingUser =
+        Array.isArray(data.user?.identities) && data.user.identities.length === 0
+      if (data.user && !isExistingUser) {
         await recordSignupConsent(data.user.id)
       }
 
