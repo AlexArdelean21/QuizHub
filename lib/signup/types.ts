@@ -5,6 +5,7 @@ export type PlanTier = {
   max_admini: number
   max_useri: number
   max_examene: number
+  tokeni_lunari: number
   pret_luna: number
   pret_an: number
 }

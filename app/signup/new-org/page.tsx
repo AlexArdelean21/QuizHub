@@ -13,6 +13,7 @@ type PlanTierRow = {
   max_admini: number
   max_useri: number
   max_examene: number
+  tokeni_lunari: number | null
   pret_luna: number | string | null
   pret_an: number | string | null
   este_activ: boolean
@@ -26,6 +27,7 @@ function toPlanTier(row: PlanTierRow): PlanTier {
     max_admini: row.max_admini,
     max_useri: row.max_useri,
     max_examene: row.max_examene,
+    tokeni_lunari: Number(row.tokeni_lunari ?? 0),
     pret_luna: Number(row.pret_luna ?? 0),
     pret_an: Number(row.pret_an ?? 0),
   }
@@ -36,7 +38,7 @@ export default async function NewOrgSignupPage() {
   const { data } = await admin
     .from("plan_tiers")
     .select(
-      "id, nume, display_name, max_admini, max_useri, max_examene, pret_luna, pret_an, este_activ"
+      "id, nume, display_name, max_admini, max_useri, max_examene, tokeni_lunari, pret_luna, pret_an, este_activ"
     )
     .eq("este_activ", true)
     .order("id")
