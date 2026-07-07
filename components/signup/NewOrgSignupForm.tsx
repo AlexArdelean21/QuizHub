@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import { recordSignupConsent } from "@/lib/legal/record-signup-consent"
 import { SignupConsent } from "@/components/signup/SignupConsent"
+import { ExistingEmailNotice } from "@/components/signup/ExistingEmailNotice"
 import {
   PENDING_ORG_NUME_KEY,
   PENDING_ORG_TIER_KEY,
@@ -46,6 +47,7 @@ export function NewOrgSignupForm({ tiers, enterpriseTier }: NewOrgSignupFormProp
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [signupDone, setSignupDone] = useState(false)
+  const [existingEmail, setExistingEmail] = useState(false)
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -101,12 +103,22 @@ export function NewOrgSignupForm({ tiers, enterpriseTier }: NewOrgSignupFormProp
 
       // With email confirmations on, signing up with an already-registered email
       // returns an obfuscated user with an empty `identities` array (Supabase
-      // anti-enumeration). Its id doesn't exist, so recording consent would 404
-      // and no org would be created. Skip it, but keep the same "check your email"
-      // UI so existence isn't revealed.
+      // anti-enumeration). Product decision: disclose this explicitly.
+      //
+      // Early return BEFORE any further processing: the pending_org_* metadata
+      // was passed to signUp() above, but Supabase attaches it only to the
+      // throwaway obfuscated user, never to the real account — and since no
+      // confirmation email is sent for an existing user, /auth/callback never
+      // runs, so no organizatii row is created. We also skip the consent write
+      // (throwaway id) and never auto-send a reset.
       const isExistingUser =
         Array.isArray(data.user?.identities) && data.user.identities.length === 0
-      if (data.user && !isExistingUser) {
+      if (isExistingUser) {
+        setExistingEmail(true)
+        return
+      }
+
+      if (data.user) {
         await recordSignupConsent(data.user.id)
       }
 
@@ -118,6 +130,10 @@ export function NewOrgSignupForm({ tiers, enterpriseTier }: NewOrgSignupFormProp
     } finally {
       setIsSubmitting(false)
     }
+  }
+
+  if (existingEmail) {
+    return <ExistingEmailNotice email={email} className="max-w-lg" />
   }
 
   if (signupDone) {

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import { recordSignupConsent } from "@/lib/legal/record-signup-consent"
 import { SignupConsent } from "@/components/signup/SignupConsent"
+import { ExistingEmailNotice } from "@/components/signup/ExistingEmailNotice"
 import { cn } from "@/lib/utils"
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -26,6 +27,7 @@ export function PersonalSignupForm() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [signupDone, setSignupDone] = useState(false)
+  const [existingEmail, setExistingEmail] = useState(false)
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -65,11 +67,17 @@ export function PersonalSignupForm() {
 
       // With email confirmations on, signing up with an already-registered email
       // returns an obfuscated user with an empty `identities` array (Supabase
-      // anti-enumeration). Its id doesn't exist, so recording consent would 404.
-      // Skip it, but keep the same "check your email" UI so existence isn't revealed.
+      // anti-enumeration). Product decision: disclose this explicitly instead of
+      // hiding it. Short-circuit here — no consent write (the id is a throwaway)
+      // and no reset email; the user chooses to send one from the notice.
       const isExistingUser =
         Array.isArray(data.user?.identities) && data.user.identities.length === 0
-      if (data.user && !isExistingUser) {
+      if (isExistingUser) {
+        setExistingEmail(true)
+        return
+      }
+
+      if (data.user) {
         await recordSignupConsent(data.user.id)
       }
 
@@ -81,6 +89,10 @@ export function PersonalSignupForm() {
     } finally {
       setIsSubmitting(false)
     }
+  }
+
+  if (existingEmail) {
+    return <ExistingEmailNotice email={email} className="max-w-md" />
   }
 
   if (signupDone) {
