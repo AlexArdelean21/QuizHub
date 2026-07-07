@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from "next/server"
 import { createServerClient } from "@supabase/ssr"
 import { SUPABASE_COOKIE_OPTIONS } from "@/lib/supabase/cookie-options"
 import { consumeInviteToken } from "@/lib/auth/invite-token"
+import { createOrgOnSignup } from "@/lib/signup/create-org"
+import { PENDING_ORG_NUME_KEY, PENDING_ORG_TIER_KEY } from "@/lib/signup/types"
 
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
@@ -51,6 +53,52 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(
       new URL("/login?error=auth-code-error", requestUrl.origin)
     )
+  }
+
+  // Deferred organization creation (new-org signup): the org name + tier were
+  // stored in user metadata at signUp and are consumed now that the email is
+  // confirmed and an authenticated session exists.
+  {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    const meta = (user?.user_metadata ?? {}) as Record<string, unknown>
+    const rawNume = meta[PENDING_ORG_NUME_KEY]
+    const rawTier = meta[PENDING_ORG_TIER_KEY]
+    const pendingNume = typeof rawNume === "string" ? rawNume.trim() : ""
+    const pendingTier =
+      typeof rawTier === "number" ? rawTier : Number(rawTier)
+
+    if (
+      user?.id &&
+      pendingNume &&
+      Number.isInteger(pendingTier) &&
+      pendingTier > 0
+    ) {
+      const result = await createOrgOnSignup(supabase, {
+        userId: user.id,
+        orgName: pendingNume,
+        tierId: pendingTier,
+      })
+
+      // Clear the pending intent so it can never be re-applied on a later visit.
+      await supabase.auth.updateUser({
+        data: {
+          [PENDING_ORG_NUME_KEY]: null,
+          [PENDING_ORG_TIER_KEY]: null,
+        },
+      })
+
+      const target = result.success
+        ? "/dashboard/admin"
+        : `/dashboard?org_error=${encodeURIComponent(result.error)}`
+
+      const orgResponse = NextResponse.redirect(new URL(target, requestUrl.origin))
+      response.cookies.getAll().forEach((cookie) => {
+        orgResponse.cookies.set(cookie)
+      })
+      return orgResponse
+    }
   }
 
   if (invite && typeof invite === "string") {

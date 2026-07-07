@@ -6,7 +6,7 @@ import {
   SUPABASE_COOKIE_BASE,
 } from "@/lib/supabase/cookie-options"
 
-const PUBLIC_PATHS = ["/login", "/auth/callback", "/api/auth", "/api/webhooks", "/join", "/docs", "/legal"]
+const PUBLIC_PATHS = ["/login", "/signup", "/auth/callback", "/api/auth", "/api/webhooks", "/join", "/docs", "/legal"]
 
 // Routes an unauthenticated visitor is allowed to view. Unlike PUBLIC_PATHS,
 // these still go through the Supabase client so a logged-in user's session is
