@@ -82,7 +82,7 @@ export function PersonalExamsSection({
           {exams.map((exam) => (
             <li
               key={exam.id}
-              className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+              className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent/50"
             >
               <FileText className="size-4 shrink-0 text-primary" />
               <span className="truncate">{exam.nume_examen}</span>

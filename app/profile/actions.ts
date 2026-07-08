@@ -145,6 +145,31 @@ export async function cancelAccountDeletion(): Promise<ActionResult> {
   return { success: true }
 }
 
+export async function updateName(nume: string): Promise<ActionResult> {
+  const supabase = await createSupabaseServerClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { success: false, error: NOT_AUTHENTICATED }
+
+  const trimmed = nume.trim()
+  if (trimmed.length < 2 || trimmed.length > 80) {
+    return {
+      success: false,
+      error: "Numele trebuie să aibă între 2 și 80 de caractere.",
+    }
+  }
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ nume: trimmed })
+    .eq("id", user.id)
+  if (error) return { success: false, error: error.message }
+
+  revalidatePath("/profile")
+  return { success: true }
+}
+
 export async function changePassword(newPassword: string): Promise<ActionResult> {
   const supabase = await createSupabaseServerClient()
   const {

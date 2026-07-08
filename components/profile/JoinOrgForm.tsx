@@ -74,7 +74,7 @@ export function JoinOrgForm({
   }
 
   return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-3">
+    <form onSubmit={onSubmit} className="flex flex-col gap-4">
       {existingRequest?.status === "rejected" ? (
         <p className="rounded-md bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
           Cererea anterioară a fost respinsă. Poți încerca din nou.

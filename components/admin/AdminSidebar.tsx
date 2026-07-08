@@ -18,6 +18,7 @@ import {
   Menu,
   Moon,
   Sun,
+  User,
   Users,
   X,
 } from "lucide-react"
@@ -243,6 +244,12 @@ export function AdminLayoutShell({
       icon: Layers,
       show: isSuperAdmin,
     },
+    {
+      href: "/profile",
+      label: "Profilul meu",
+      icon: User,
+      show: true,
+    },
   ].filter((item) => item.show)
 
   const displayName = fullName?.trim() || email?.split("@")[0] || "Admin"
@@ -411,14 +418,23 @@ export function AdminLayoutShell({
           <Menu className="size-5" />
         </button>
         <p className="text-sm font-semibold text-slate-900 dark:text-white">QuizHub Admin</p>
-        <button
-          type="button"
-          onClick={toggleTheme}
-          aria-label="Schimbă tema"
-          className="inline-flex size-10 items-center justify-center rounded-lg text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-900"
-        >
-          {mounted && theme === "dark" ? <Sun className="size-5" /> : <Moon className="size-5" />}
-        </button>
+        <div className="flex items-center gap-1">
+          <Link
+            href="/profile"
+            aria-label="Profilul meu"
+            className="inline-flex size-10 items-center justify-center rounded-lg text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-900"
+          >
+            <User className="size-5" />
+          </Link>
+          <button
+            type="button"
+            onClick={toggleTheme}
+            aria-label="Schimbă tema"
+            className="inline-flex size-10 items-center justify-center rounded-lg text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-900"
+          >
+            {mounted && theme === "dark" ? <Sun className="size-5" /> : <Moon className="size-5" />}
+          </button>
+        </div>
       </div>
 
       {/* Mobile drawer backdrop — always rendered, opacity-toggled for smooth perf */}

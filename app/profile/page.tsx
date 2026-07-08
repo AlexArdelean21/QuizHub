@@ -2,16 +2,13 @@ import { Suspense } from "react"
 import { redirect } from "next/navigation"
 import Link from "next/link"
 import { ChevronLeft } from "lucide-react"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import { normalizeRole, type AppRole } from "@/lib/auth/roles"
+import { getInitials } from "@/lib/avatar"
+import { ProfileTabs } from "@/components/profile/ProfileTabs"
+import { ProfileAvatar } from "@/components/profile/ProfileAvatar"
+import { NameField } from "@/components/profile/NameField"
 import { LeaveOrgAdminButton } from "@/components/profile/LeaveOrgAdminButton"
 import {
   JoinOrgForm,
@@ -68,15 +65,103 @@ export default async function ProfilePage() {
     ? String(profile.deletion_requested_at)
     : null
   const fullName = profile?.nume ? String(profile.nume) : null
+  const email = user.email ?? ""
+  const displayName = fullName?.trim() ? fullName : email
+  const initials = getInitials(fullName, email)
 
   // Server-side gate: the join section must not render at all for org admins /
   // super admins (not merely be hidden on the client).
   const canJoinOrg = role !== "super_admin" && (role === "user" || !orgId)
 
+  const datePersonale = (
+    <div className="flex max-w-md flex-col gap-4 rounded-2xl border border-border bg-card p-6 shadow-sm">
+      <h2 className="mb-4 text-lg font-semibold text-foreground">Date personale</h2>
+      <NameField initialName={fullName} />
+      <div className="flex flex-col gap-1.5">
+        <span className="text-sm text-muted-foreground">Email</span>
+        <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-foreground">
+          {email}
+        </p>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-muted-foreground">Rol</span>
+        <Badge variant={role === "user" ? "secondary" : "default"}>
+          {ROLE_LABEL[role]}
+        </Badge>
+      </div>
+    </div>
+  )
+
+  const organizatie = (
+    <div className="flex max-w-lg flex-col gap-6 rounded-2xl border border-border bg-card p-6 shadow-sm">
+      <div className="flex flex-col gap-3">
+        <h2 className="mb-4 text-lg font-semibold text-foreground">Organizație</h2>
+        {orgId ? (
+          <>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-sm text-muted-foreground">Nume organizație</span>
+              <p className="font-medium text-foreground">{orgName ?? "—"}</p>
+            </div>
+            {role === "org_admin" ? (
+              <Suspense fallback={<SectionSkeleton />}>
+                <OrgAdminActions userId={user.id} orgId={orgId} />
+              </Suspense>
+            ) : null}
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Nu faci parte din nicio organizație.
+          </p>
+        )}
+      </div>
+
+      {canJoinOrg ? (
+        <div className="flex flex-col gap-3 border-t border-border pt-6">
+          <div className="flex flex-col gap-1">
+            <h3 className="text-base font-semibold text-foreground">
+              Intră într-o organizație
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              Trimite o cerere de aderare folosind codul organizației.
+            </p>
+          </div>
+          <Suspense fallback={<SectionSkeleton />}>
+            <JoinOrgCard userId={user.id} />
+          </Suspense>
+        </div>
+      ) : null}
+    </div>
+  )
+
+  const examene = (
+    <div className="flex max-w-lg flex-col gap-4 rounded-2xl border border-border bg-card p-6 shadow-sm">
+      <h2 className="mb-4 text-lg font-semibold text-foreground">Examene proprii</h2>
+      <Suspense fallback={<SectionSkeleton />}>
+        <PersonalExamsCard userId={user.id} maxPersonal={maxPersonal} />
+      </Suspense>
+    </div>
+  )
+
+  const setari = (
+    <div className="flex flex-col gap-8 rounded-2xl border border-border bg-card p-6 shadow-sm">
+      <h2 className="mb-4 text-lg font-semibold text-foreground">Setări cont</h2>
+      <div className="grid gap-8 lg:grid-cols-2">
+        <div className="flex max-w-md flex-col gap-3">
+          <h3 className="text-sm font-semibold text-foreground">Schimbă parola</h3>
+          <PasswordChangeForm />
+        </div>
+        <div className="flex max-w-md flex-col gap-3">
+          <h3 className="text-sm font-semibold text-foreground">Șterge contul</h3>
+          <DeleteAccountSection deletionRequestedAt={deletionRequestedAt} />
+        </div>
+      </div>
+    </div>
+  )
+
   return (
     <div className="min-h-screen bg-background">
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-12 sm:px-6 md:py-16 lg:px-8">
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-4">
           <Link
             href="/"
             className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground transition hover:text-foreground"
@@ -84,115 +169,38 @@ export default async function ProfilePage() {
             <ChevronLeft className="size-4" />
             Înapoi
           </Link>
-          <h1 className="text-2xl font-bold text-foreground md:text-3xl">Profilul meu</h1>
-        </div>
 
-        <div className="grid gap-5 md:grid-cols-2">
-          {/* 1. Date personale */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Date personale</CardTitle>
-              <CardDescription>Informațiile contului tău.</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3 text-sm">
-              <div className="flex flex-col gap-1">
-                <span className="text-muted-foreground">Nume</span>
-                <span className="font-medium text-foreground">
-                  {fullName ?? "—"}
-                </span>
-              </div>
-              <div className="flex flex-col gap-1">
-                <span className="text-muted-foreground">Email</span>
-                <span className="font-medium text-foreground">{user.email}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground">Rol</span>
-                <Badge variant={role === "user" ? "secondary" : "default"}>
+          <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+            <div className="flex items-center gap-4">
+              <ProfileAvatar initials={initials} size="lg" />
+              <div className="flex min-w-0 flex-col gap-1">
+                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  Profilul meu
+                </p>
+                <h1 className="truncate text-xl font-semibold text-foreground">
+                  {displayName}
+                </h1>
+                <Badge
+                  variant={role === "user" ? "secondary" : "default"}
+                  className="w-fit"
+                >
                   {ROLE_LABEL[role]}
                 </Badge>
               </div>
-            </CardContent>
-          </Card>
-
-          {/* 2. Organizație */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Organizație</CardTitle>
-              <CardDescription>
-                {orgId
-                  ? "Organizația din care faci parte."
-                  : "Nu faci parte din nicio organizație."}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4 text-sm">
-              {orgId ? (
-                <>
-                  <div className="flex flex-col gap-1">
-                    <span className="text-muted-foreground">Nume organizație</span>
-                    <span className="font-medium text-foreground">{orgName ?? "—"}</span>
-                  </div>
-                  {role === "org_admin" ? (
-                    <Suspense fallback={<SectionSkeleton />}>
-                      <OrgAdminActions userId={user.id} orgId={orgId} />
-                    </Suspense>
-                  ) : null}
-                </>
-              ) : (
-                <p className="text-muted-foreground">
-                  Poți intra într-o organizație folosind un cod de organizație.
-                </p>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* 3. Intră într-o organizație (gated server-side) */}
-          {canJoinOrg ? (
-            <Card>
-              <CardHeader>
-                <CardTitle>Intră într-o organizație</CardTitle>
-                <CardDescription>
-                  Trimite o cerere de aderare folosind codul organizației.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Suspense fallback={<SectionSkeleton />}>
-                  <JoinOrgCard userId={user.id} />
-                </Suspense>
-              </CardContent>
-            </Card>
-          ) : null}
-
-          {/* 4. Examene proprii */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Examene proprii</CardTitle>
-              <CardDescription>Examenele create de tine.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Suspense fallback={<SectionSkeleton />}>
-                <PersonalExamsCard userId={user.id} maxPersonal={maxPersonal} />
-              </Suspense>
-            </CardContent>
-          </Card>
-
-          {/* 5. Setări cont */}
-          <Card className="md:col-span-2">
-            <CardHeader>
-              <CardTitle>Setări cont</CardTitle>
-              <CardDescription>Parolă și gestionarea contului.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-8 md:grid-cols-2">
-              <div className="flex flex-col gap-3">
-                <h3 className="text-sm font-semibold text-foreground">Schimbă parola</h3>
-                <PasswordChangeForm />
-              </div>
-              <div className="flex flex-col gap-3">
-                <h3 className="text-sm font-semibold text-foreground">Șterge contul</h3>
-                <DeleteAccountSection deletionRequestedAt={deletionRequestedAt} />
-              </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </div>
+
+        <ProfileTabs
+          name={fullName}
+          email={email}
+          roleLabel={ROLE_LABEL[role]}
+          isPlainUser={role === "user"}
+          datePersonale={datePersonale}
+          organizatie={organizatie}
+          examene={examene}
+          setari={setari}
+        />
       </main>
     </div>
   )

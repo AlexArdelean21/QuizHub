@@ -8,6 +8,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import { useTrackActivity } from "@/hooks/use-track-activity"
 import { isAdminRole } from "@/lib/auth/roles"
 import { useAppSidebar } from "@/components/sidebar-layout"
+import { UserMenu } from "@/components/user-menu"
 import { cn } from "@/lib/utils"
 
 type Theme = "light" | "dark"
@@ -19,6 +20,7 @@ export function GlobalHeader() {
   const [showExit, setShowExit] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
   const [userEmail, setUserEmail] = useState("")
+  const [userName, setUserName] = useState<string | null>(null)
   const [mounted, setMounted] = useState(false)
   const [theme, setTheme] = useState<Theme>("dark")
   const [storedExamId, setStoredExamId] = useState<number | null>(null)
@@ -43,13 +45,14 @@ export function GlobalHeader() {
         if (!user) {
           setIsAdmin(false)
           setUserEmail("")
+          setUserName(null)
           return
         }
         setUserEmail(user.email ?? "")
 
         const { data: profile, error } = await supabase
           .from("profiles")
-          .select("role")
+          .select("role, nume")
           .eq("id", user.id)
           .maybeSingle()
 
@@ -59,6 +62,9 @@ export function GlobalHeader() {
         }
 
         setIsAdmin(isAdminRole(profile?.role))
+        setUserName(
+          profile?.nume ? String(profile.nume) : null
+        )
       } catch {
         setIsAdmin(false)
       }
@@ -164,7 +170,7 @@ export function GlobalHeader() {
               </Link>
             </div>
 
-            <div className="flex shrink-0 items-center justify-center md:w-10">
+            <div className="flex shrink-0 items-center justify-end gap-1">
               {canExitQuiz && (
                 <button
                   type="button"
@@ -174,6 +180,11 @@ export function GlobalHeader() {
                 >
                   <X className="size-5" />
                 </button>
+              )}
+              {userEmail && (
+                <span className="hidden md:inline-flex">
+                  <UserMenu name={userName} email={userEmail} />
+                </span>
               )}
             </div>
           </div>

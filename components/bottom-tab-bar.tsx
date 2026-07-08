@@ -137,7 +137,7 @@ export function BottomTabBar() {
     { key: "quiz", label: "Quiz", icon: Home, href: "/" },
     { key: "statistici", label: "Statistici", icon: BarChart3, href: "/dashboard/statistici" },
     ...(isAdmin ? [{ key: "admin", label: "Admin", icon: Shield, href: "/admin" }] : []),
-    { key: "profil", label: "Profil", icon: User, onClick: () => setProfileOpen(true) },
+    { key: "profil", label: "Cont", icon: User, onClick: () => setProfileOpen(true) },
   ]
 
   const isTabActive = (key: string) => {
@@ -161,6 +161,14 @@ export function BottomTabBar() {
             <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-muted" />
             <p className="text-sm font-medium text-foreground">{userEmail || "—"}</p>
             <div className="mt-4 space-y-1">
+              <Link
+                href="/profile"
+                onClick={closeProfile}
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm text-foreground transition hover:bg-muted"
+              >
+                <User size={18} />
+                Profilul meu
+              </Link>
               <button
                 type="button"
                 onClick={toggleTheme}
