@@ -50,6 +50,7 @@ export async function POST(request: NextRequest) {
     // Derive the origin from the request so redirectTo always exactly matches
     // the host the browser is on — prevents localhost vs 127.0.0.1 mismatches.
     const origin =
+      process.env.NEXT_PUBLIC_SITE_URL ??
       request.headers.get("origin") ??
       (() => {
         const ref = request.headers.get("referer")
@@ -63,7 +64,7 @@ export async function POST(request: NextRequest) {
         return new URL(request.url).origin
       })()
 
-    const redirectTo = `${origin}/auth/callback?next=/update-password`
+    const redirectTo = `${origin}/auth/callback/reset-password`
 
     const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
       cookieOptions: SUPABASE_COOKIE_OPTIONS,
