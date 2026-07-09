@@ -6,6 +6,7 @@ import Link from "next/link"
 import { Eye, EyeOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { migrateAnonymousCookieConsent } from "@/lib/legal/consent-migration"
 
 function LoginForm() {
   const router = useRouter()
@@ -64,6 +65,9 @@ function LoginForm() {
       // Briefly morph the button into a green checkmark before navigating
       // so the success is visible. The full reload happens right after.
       setLoginSuccess(true)
+      // Migrate any localStorage cookie-consent record to the DB now that
+      // we have an authenticated session. Errors are swallowed inside.
+      await migrateAnonymousCookieConsent()
       await new Promise((resolve) => setTimeout(resolve, 700))
       window.location.href = result.redirectTo ?? "/"
     } catch (error) {

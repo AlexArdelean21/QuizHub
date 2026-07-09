@@ -33,12 +33,33 @@ export function CookieConsentBanner() {
     void check();
   }, []);
 
-  function persist(analytics: boolean) {
+  async function persist(analytics: boolean) {
     writeCookieConsent({
       analytics,
       version: currentVersion,
       decidedAt: new Date().toISOString(),
     });
+
+    // Fire-and-forget consent write for authenticated users.
+    // Anonymous users get 401 here (handled silently); their consent will be
+    // migrated by lib/legal/consent-migration on next login.
+    void (async () => {
+      try {
+        const res = await fetch("/api/legal/accept-pending", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            documents: [{ type: "cookies", version: currentVersion }],
+          }),
+        });
+        if (!res.ok && res.status !== 401 && res.status !== 207) {
+          console.error("[CookieConsentBanner] Consent write failed:", res.status);
+        }
+      } catch (err) {
+        console.error("[CookieConsentBanner] Consent write threw:", err);
+      }
+    })();
+
     setVisible(false);
     setPreferencesOpen(false);
   }
