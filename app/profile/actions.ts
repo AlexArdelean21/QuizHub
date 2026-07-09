@@ -33,6 +33,23 @@ export async function leaveOrgAdminRole(): Promise<ActionResult> {
   return { success: true }
 }
 
+export async function leaveOrganization(): Promise<ActionResult> {
+  const supabase = await createSupabaseServerClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { success: false, error: NOT_AUTHENTICATED }
+
+  const { error } = await supabase.rpc("leave_organization")
+  if (error) return { success: false, error: error.message }
+
+  // Re-render the org section, and the home page (leaving the org changes which
+  // exams / quiz options the user sees there).
+  revalidatePath("/profile")
+  revalidatePath("/")
+  return { success: true }
+}
+
 export async function requestJoinOrg(
   codOrg: string,
   message?: string
@@ -187,5 +204,33 @@ export async function changePassword(newPassword: string): Promise<ActionResult>
   const { error } = await supabase.auth.updateUser({ password: newPassword })
   if (error) return { success: false, error: error.message }
 
+  return { success: true }
+}
+
+export async function updateEmail(newEmail: string): Promise<ActionResult> {
+  const supabase = await createSupabaseServerClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { success: false, error: NOT_AUTHENTICATED }
+
+  const trimmed = newEmail.trim().toLowerCase()
+  // Minimal server-side email shape check — Supabase re-validates and enforces uniqueness itself.
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+    return { success: false, error: "Introdu o adresă de email validă." }
+  }
+  if (trimmed === (user.email ?? "").toLowerCase()) {
+    return { success: false, error: "Aceasta este deja adresa ta actuală." }
+  }
+
+  // Triggers Supabase's built-in email-change confirmation flow. If the project
+  // has "Enable email change confirmations" enabled (default and recommended),
+  // both old and new addresses receive a confirmation link; auth.users.email
+  // only changes after the user confirms via the new address. profiles.email
+  // is kept in sync by the existing DB trigger — do not update it here manually.
+  const { error } = await supabase.auth.updateUser({ email: trimmed })
+  if (error) return { success: false, error: error.message }
+
+  revalidatePath("/profile")
   return { success: true }
 }

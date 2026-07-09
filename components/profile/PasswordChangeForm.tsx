@@ -46,10 +46,14 @@ export function PasswordChangeForm() {
 
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-3">
+      <p className="text-sm text-muted-foreground">
+        Alege o parolă nouă pentru contul tău.
+      </p>
       <div className="flex flex-col gap-1.5">
         <label htmlFor="new-password" className="text-sm font-medium text-foreground">
           Parolă nouă
         </label>
+        <p className="text-xs text-muted-foreground">Minim {MIN_PASSWORD_LENGTH} caractere.</p>
         <div className="relative">
           <input
             id="new-password"
@@ -69,7 +73,6 @@ export function PasswordChangeForm() {
             {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
           </button>
         </div>
-        <p className="text-xs text-muted-foreground">Minim {MIN_PASSWORD_LENGTH} caractere.</p>
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -100,7 +103,7 @@ export function PasswordChangeForm() {
         </p>
       ) : null}
 
-      <Button type="submit" disabled={isPending} className="w-full">
+      <Button type="submit" disabled={isPending} className="w-full sm:w-auto sm:self-start">
         {isPending ? "Se salvează..." : "Schimbă parola"}
       </Button>
     </form>

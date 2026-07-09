@@ -32,6 +32,7 @@ export function JoinOrgForm({
   const [codOrg, setCodOrg] = useState("")
   const [message, setMessage] = useState("")
   const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
 
   // A pending or approved request means no new form. A rejected one may be
@@ -69,6 +70,11 @@ export function JoinOrgForm({
       }
       setCodOrg("")
       setMessage("")
+      // Immediate feedback: the server re-render (router.refresh) will replace
+      // this form with the "În așteptare" state, but that can lag a moment, so
+      // show a confirmation right away and auto-clear it.
+      setSuccess("Cererea a fost trimisă. Vei fi notificat când e aprobată.")
+      setTimeout(() => setSuccess(null), 4000)
       router.refresh()
     })
   }
@@ -109,6 +115,12 @@ export function JoinOrgForm({
           className={inputClass}
         />
       </div>
+
+      {success ? (
+        <p className="rounded-md bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">
+          {success}
+        </p>
+      ) : null}
 
       {error ? (
         <p className="rounded-md bg-rose-500/10 px-3 py-2 text-sm text-rose-600 dark:text-rose-400">

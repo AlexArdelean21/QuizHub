@@ -9,7 +9,11 @@ import { getInitials } from "@/lib/avatar"
 import { ProfileTabs } from "@/components/profile/ProfileTabs"
 import { ProfileAvatar } from "@/components/profile/ProfileAvatar"
 import { NameField } from "@/components/profile/NameField"
+import { EmailField } from "@/components/profile/EmailField"
+import { OrgCodeDisplay } from "@/components/profile/OrgCodeDisplay"
+import { ConsentStatusCard } from "@/components/profile/ConsentStatusCard"
 import { LeaveOrgAdminButton } from "@/components/profile/LeaveOrgAdminButton"
+import { LeaveOrganizationButton } from "@/components/profile/LeaveOrganizationButton"
 import {
   JoinOrgForm,
   type ExistingJoinRequest,
@@ -40,6 +44,15 @@ function extractOrgName(relation: unknown): string | null {
   return null
 }
 
+function extractOrgCode(relation: unknown): string | null {
+  const record = Array.isArray(relation) ? relation[0] : relation
+  if (record && typeof record === "object" && "cod_org" in record) {
+    const code = (record as { cod_org?: unknown }).cod_org
+    return typeof code === "string" ? code : null
+  }
+  return null
+}
+
 function SectionSkeleton() {
   return <div className="h-24 w-full animate-pulse rounded-lg bg-muted" />
 }
@@ -53,13 +66,14 @@ export default async function ProfilePage() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("nume, role, org_id, max_examene_personale, deletion_requested_at, organizatii(nume)")
+    .select("nume, role, org_id, max_examene_personale, deletion_requested_at, organizatii(nume, cod_org)")
     .eq("id", user.id)
     .maybeSingle()
 
   const role = normalizeRole(profile?.role)
   const orgId = profile?.org_id ? String(profile.org_id) : null
   const orgName = extractOrgName(profile?.organizatii)
+  const orgCode = extractOrgCode(profile?.organizatii)
   const maxPersonal = Number(profile?.max_examene_personale ?? 2)
   const deletionRequestedAt = profile?.deletion_requested_at
     ? String(profile.deletion_requested_at)
@@ -74,15 +88,10 @@ export default async function ProfilePage() {
   const canJoinOrg = role !== "super_admin" && (role === "user" || !orgId)
 
   const datePersonale = (
-    <div className="flex max-w-md flex-col gap-4 rounded-2xl border border-border bg-card p-6 shadow-sm">
+    <div className="flex max-w-md flex-col gap-4">
       <h2 className="mb-4 text-lg font-semibold text-foreground">Date personale</h2>
       <NameField initialName={fullName} />
-      <div className="flex flex-col gap-1.5">
-        <span className="text-sm text-muted-foreground">Email</span>
-        <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-foreground">
-          {email}
-        </p>
-      </div>
+      <EmailField initialEmail={email} />
       <div className="flex items-center gap-2">
         <span className="text-sm text-muted-foreground">Rol</span>
         <Badge variant={role === "user" ? "secondary" : "default"}>
@@ -93,7 +102,7 @@ export default async function ProfilePage() {
   )
 
   const organizatie = (
-    <div className="flex max-w-lg flex-col gap-6 rounded-2xl border border-border bg-card p-6 shadow-sm">
+    <div className="flex max-w-lg flex-col gap-6">
       <div className="flex flex-col gap-3">
         <h2 className="mb-4 text-lg font-semibold text-foreground">Organizație</h2>
         {orgId ? (
@@ -102,10 +111,15 @@ export default async function ProfilePage() {
               <span className="text-sm text-muted-foreground">Nume organizație</span>
               <p className="font-medium text-foreground">{orgName ?? "—"}</p>
             </div>
+            {(role === "org_admin" || role === "super_admin") && orgCode ? (
+              <OrgCodeDisplay code={orgCode} />
+            ) : null}
             {role === "org_admin" ? (
               <Suspense fallback={<SectionSkeleton />}>
                 <OrgAdminActions userId={user.id} orgId={orgId} />
               </Suspense>
+            ) : role === "user" ? (
+              <LeaveOrganizationButton />
             ) : null}
           </>
         ) : (
@@ -134,7 +148,7 @@ export default async function ProfilePage() {
   )
 
   const examene = (
-    <div className="flex max-w-lg flex-col gap-4 rounded-2xl border border-border bg-card p-6 shadow-sm">
+    <div className="flex max-w-lg flex-col gap-4">
       <h2 className="mb-4 text-lg font-semibold text-foreground">Examene proprii</h2>
       <Suspense fallback={<SectionSkeleton />}>
         <PersonalExamsCard userId={user.id} maxPersonal={maxPersonal} />
@@ -143,17 +157,30 @@ export default async function ProfilePage() {
   )
 
   const setari = (
-    <div className="flex flex-col gap-8 rounded-2xl border border-border bg-card p-6 shadow-sm">
+    <div className="flex flex-col gap-8">
       <h2 className="mb-4 text-lg font-semibold text-foreground">Setări cont</h2>
-      <div className="grid gap-8 lg:grid-cols-2">
-        <div className="flex max-w-md flex-col gap-3">
-          <h3 className="text-sm font-semibold text-foreground">Schimbă parola</h3>
-          <PasswordChangeForm />
-        </div>
-        <div className="flex max-w-md flex-col gap-3">
-          <h3 className="text-sm font-semibold text-foreground">Șterge contul</h3>
-          <DeleteAccountSection deletionRequestedAt={deletionRequestedAt} />
-        </div>
+
+      <div className="flex max-w-md flex-col gap-3">
+        <h3 className="text-sm font-semibold text-foreground">Schimbă parola</h3>
+        <PasswordChangeForm />
+      </div>
+
+      <div className="border-t border-border" />
+
+      <Suspense fallback={<SectionSkeleton />}>
+        <ConsentStatusCard userId={user.id} />
+      </Suspense>
+
+      <div className="border-t border-rose-500/30" />
+
+      <div className="flex max-w-md flex-col gap-3">
+        <h3 className="text-sm font-semibold text-rose-700 dark:text-rose-400">
+          Zonă cu risc
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          Aceste acțiuni sunt permanente și nu pot fi anulate.
+        </p>
+        <DeleteAccountSection deletionRequestedAt={deletionRequestedAt} />
       </div>
     </div>
   )
@@ -227,6 +254,11 @@ async function JoinOrgCard({ userId }: { userId: string }) {
     .from("org_join_requests")
     .select("status, created_at, organizatii(nume)")
     .eq("user_id", userId)
+    // Only surface requests still actionable from the user's POV. Approved rows
+    // are kept for audit but are stale here (a user reaching this form has
+    // org_id = NULL), so excluding them prevents a leftover "Aprobată" badge
+    // from blocking a fresh join request.
+    .in("status", ["pending", "rejected"])
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle()

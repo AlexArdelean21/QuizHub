@@ -17,8 +17,10 @@ import {
   LogOut,
   Menu,
   Moon,
+  MoreHorizontal,
   Sun,
   User,
+  UserPlus,
   Users,
   X,
 } from "lucide-react"
@@ -60,12 +62,26 @@ function roleLabel(role: AppRole): string {
   }
 }
 
+type AdminBottomTab = {
+  key: string
+  label: string
+  icon: typeof LayoutDashboard
+  href?: string
+  isBack?: boolean
+  isMore?: boolean
+}
+
+// Overflow routes surfaced inside the "Mai mult" sheet. Kept in one place so the
+// active-state check and the sheet links can't drift apart.
+const MORE_ROUTES = ["/admin/join-requests", "/dashboard/admin/invite"] as const
+
 function AdminBottomTabBar({ isSuperAdmin }: { isSuperAdmin: boolean }) {
   const pathname = usePathname()
   const [hash, setHash] = useState("")
   const [bouncedKey, setBouncedKey] = useState<string | null>(null)
   const [dragDestination, setDragDestination] = useState<string | null>(null)
   const [barMounted, setBarMounted] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
 
   useEffect(() => {
     setBarMounted(true)
@@ -92,6 +108,12 @@ function AdminBottomTabBar({ isSuperAdmin }: { isSuperAdmin: boolean }) {
     return () => window.removeEventListener("swipe-drag-progress", onDragProgress as EventListener)
   }, [])
 
+  // Belt-and-suspenders: close the sheet on any route change, in case the item
+  // onClick close races the navigation (mirrors global-header.tsx's drawer).
+  useEffect(() => {
+    setMoreOpen(false)
+  }, [pathname])
+
   const isActive = (href: string) => {
     const [path, h] = href.split("#")
     if (h) return pathname === path && hash === `#${h}`
@@ -99,59 +121,136 @@ function AdminBottomTabBar({ isSuperAdmin }: { isSuperAdmin: boolean }) {
     return pathname.startsWith(path)
   }
 
-  const tabs = [
-    { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
-    { href: "/dashboard/admin/elevi", label: "Statistici", icon: BarChart3 },
+  const moreActive = MORE_ROUTES.some((route) => pathname.startsWith(route))
+
+  const tabs: AdminBottomTab[] = [
+    { key: "dashboard", href: "/admin", label: "Dashboard", icon: LayoutDashboard },
+    { key: "statistici", href: "/dashboard/admin/elevi", label: "Statistici", icon: BarChart3 },
     ...(isSuperAdmin
-      ? [{ href: "/admin/global", label: "Organizații", icon: Building2 }]
-      : [{ href: "/dashboard/admin/invite", label: "Invitații", icon: Link2 }]),
-    { href: "/", label: "← Quiz", icon: Home, isBack: true },
+      ? [
+          {
+            key: "organizatii",
+            href: "/admin/global",
+            label: "Organizații",
+            icon: Building2,
+          } satisfies AdminBottomTab,
+        ]
+      : []),
+    { key: "more", label: "Mai mult", icon: MoreHorizontal, isMore: true },
+    { key: "quiz", href: "/", label: "← Quiz", icon: Home, isBack: true },
   ]
 
   if (!barMounted) return null
 
   return createPortal(
-    <nav className="fixed inset-x-0 bottom-0 z-[130] flex justify-center pb-[env(safe-area-inset-bottom)] md:hidden">
-      <div
-        className={cn(
-          "mx-4 mb-2 flex w-full max-w-md items-center justify-around",
-          "rounded-2xl border border-border/50 bg-card/75 px-2 py-1",
-          "shadow-lg shadow-black/5 ring-1 ring-white/10 backdrop-blur-xl",
-          "dark:bg-card/60 dark:shadow-black/20 dark:ring-white/5"
-        )}
-        style={{ height: "58px" }}
-      >
-        {tabs.map((tab) => {
-          const Icon = tab.icon
-          const active = isActive(tab.href)
-          const isDragPreview = dragDestination !== null && tab.href === dragDestination
-          const showActive = active || isDragPreview
-          return (
-            <Link
-              key={tab.href}
-              href={tab.href}
-              onClick={() => handleTabTap(tab.href)}
-              className={cn(
-                "flex flex-1 flex-col items-center justify-center gap-0.5",
-                "py-2 text-[10px] font-medium transition-colors",
-                tab.isBack
-                  ? "text-muted-foreground/70 hover:text-foreground"
-                  : showActive
-                    ? "text-primary"
-                    : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Icon
-                size={22}
-                strokeWidth={showActive ? 2.5 : 1.75}
-                className={cn(bouncedKey === tab.href && "tab-bounce")}
-              />
-              <span className="leading-none">{tab.label}</span>
-            </Link>
-          )
-        })}
-      </div>
-    </nav>,
+    <>
+      {moreOpen ? (
+        <>
+          <button
+            type="button"
+            aria-label="Închide meniul"
+            onClick={() => setMoreOpen(false)}
+            className="fixed inset-0 z-[140] bg-black/40 backdrop-blur-sm md:hidden"
+          />
+          <div className="fixed inset-x-0 bottom-0 z-[150] rounded-t-2xl border-t border-border bg-card p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl md:hidden animate-slide-up">
+            <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-muted" />
+            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Mai mult
+            </p>
+            <div className="space-y-1 border-t border-border pt-2">
+              <Link
+                href="/admin/join-requests"
+                onClick={() => setMoreOpen(false)}
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm text-foreground transition hover:bg-muted"
+              >
+                <UserPlus size={18} />
+                Cereri aderare
+              </Link>
+              <Link
+                href="/dashboard/admin/invite"
+                onClick={() => setMoreOpen(false)}
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm text-foreground transition hover:bg-muted"
+              >
+                <Link2 size={18} />
+                Invitații
+              </Link>
+            </div>
+          </div>
+        </>
+      ) : null}
+
+      <nav className="fixed inset-x-0 bottom-0 z-[130] flex justify-center pb-[env(safe-area-inset-bottom)] md:hidden">
+        <div
+          className={cn(
+            "mx-4 mb-2 flex w-full max-w-md items-center justify-around",
+            "rounded-2xl border border-border/50 bg-card/75 px-2 py-1",
+            "shadow-lg shadow-black/5 ring-1 ring-white/10 backdrop-blur-xl",
+            "dark:bg-card/60 dark:shadow-black/20 dark:ring-white/5"
+          )}
+          style={{ height: "58px" }}
+        >
+          {tabs.map((tab) => {
+            const Icon = tab.icon
+
+            if (tab.isMore) {
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => {
+                    handleTabTap(tab.key)
+                    setMoreOpen((prev) => !prev)
+                  }}
+                  aria-expanded={moreOpen}
+                  className={cn(
+                    "flex flex-1 flex-col items-center justify-center gap-0.5",
+                    "py-2 text-[10px] font-medium transition-colors",
+                    moreActive
+                      ? "text-primary"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <Icon
+                    size={22}
+                    strokeWidth={moreActive ? 2.5 : 1.75}
+                    className={cn(bouncedKey === tab.key && "tab-bounce")}
+                  />
+                  <span className="leading-none">{tab.label}</span>
+                </button>
+              )
+            }
+
+            const href = tab.href ?? "/"
+            const active = isActive(href)
+            const isDragPreview = dragDestination !== null && href === dragDestination
+            const showActive = active || isDragPreview
+            return (
+              <Link
+                key={tab.key}
+                href={href}
+                onClick={() => handleTabTap(tab.key)}
+                className={cn(
+                  "flex flex-1 flex-col items-center justify-center gap-0.5",
+                  "py-2 text-[10px] font-medium transition-colors",
+                  tab.isBack
+                    ? "text-muted-foreground/70 hover:text-foreground"
+                    : showActive
+                      ? "text-primary"
+                      : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Icon
+                  size={22}
+                  strokeWidth={showActive ? 2.5 : 1.75}
+                  className={cn(bouncedKey === tab.key && "tab-bounce")}
+                />
+                <span className="leading-none">{tab.label}</span>
+              </Link>
+            )
+          })}
+        </div>
+      </nav>
+    </>,
     document.body
   )
 }
@@ -224,6 +323,12 @@ export function AdminLayoutShell({
       href: "/dashboard/admin/elevi",
       label: "Statistici utilizatori",
       icon: BarChart3,
+      show: role === "super_admin" || role === "org_admin",
+    },
+    {
+      href: "/admin/join-requests",
+      label: "Cereri aderare",
+      icon: UserPlus,
       show: role === "super_admin" || role === "org_admin",
     },
     {
