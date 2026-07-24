@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useEffect, useState } from "react"
-import { BarChart3, BookOpen, Home, LogOut, Moon, Shield, Sun, User } from "lucide-react"
+import { BarChart3, BookOpen, FileText, Home, LogOut, Moon, Shield, Sun, User } from "lucide-react"
 import { usePathname } from "next/navigation"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import { isAdminRole } from "@/lib/auth/roles"
@@ -168,6 +168,14 @@ export function BottomTabBar() {
               >
                 <User size={18} />
                 Profilul meu
+              </Link>
+              <Link
+                href="/my-exams"
+                onClick={closeProfile}
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm text-foreground transition hover:bg-muted"
+              >
+                <FileText size={18} />
+                Examenele mele
               </Link>
               <button
                 type="button"

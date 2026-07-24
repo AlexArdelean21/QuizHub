@@ -3,6 +3,7 @@
 import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 import type { ExamSummary } from "@/lib/quiz/types"
+import { Badge } from "@/components/ui/badge"
 import { ExamSelector } from "./exam-selector"
 
 const SELECTED_EXAM_STORAGE_KEY = "quiz.selectedExamId"
@@ -54,8 +55,13 @@ export function StatisticsHeader({ exams, selectedExam }: Props) {
         <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
           Statistici examen
         </p>
-        <h1 className="mt-2 bg-gradient-to-r from-foreground via-foreground to-foreground/70 bg-clip-text text-3xl font-semibold leading-tight text-transparent md:text-4xl">
-          {selectedExam.name}
+        <h1 className="mt-2 flex flex-wrap items-center gap-2 text-3xl font-semibold leading-tight md:text-4xl">
+          <span className="bg-gradient-to-r from-foreground via-foreground to-foreground/70 bg-clip-text text-transparent">
+            {selectedExam.name}
+          </span>
+          {selectedExam.isPersonal ? (
+            <Badge variant="secondary" className="text-xs">Personal</Badge>
+          ) : null}
         </h1>
       </div>
 

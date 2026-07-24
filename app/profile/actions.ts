@@ -4,9 +4,6 @@ import { revalidatePath } from "next/cache"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 export type ActionResult = { success: true } | { success: false; error: string }
-export type CreateExamResult =
-  | { success: true; examId: number }
-  | { success: false; error: string }
 
 const MIN_PASSWORD_LENGTH = 8
 const NOT_AUTHENTICATED = "Trebuie să fii autentificat."
@@ -75,59 +72,6 @@ export async function requestJoinOrg(
 
   revalidatePath("/profile")
   return { success: true }
-}
-
-export async function createPersonalExam(data: {
-  nume_examen: string
-}): Promise<CreateExamResult> {
-  const supabase = await createSupabaseServerClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return { success: false, error: NOT_AUTHENTICATED }
-
-  const examName = data.nume_examen.trim()
-  if (!examName) {
-    return { success: false, error: "Numele examenului este obligatoriu." }
-  }
-
-  // Fetch the user's personal-exam cap.
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("max_examene_personale")
-    .eq("id", user.id)
-    .maybeSingle()
-  if (profileError || !profile) {
-    return { success: false, error: "Nu s-a putut verifica limita de examene." }
-  }
-  const maxPersonal = Number(profile.max_examene_personale ?? 0)
-
-  // Count existing personal exams (scoped by creator, org_id IS NULL) server-side.
-  const { count, error: countError } = await supabase
-    .from("examene")
-    .select("id", { count: "exact", head: true })
-    .eq("creator_user_id", user.id)
-    .is("org_id", null)
-  if (countError) {
-    return { success: false, error: "Nu s-a putut verifica numărul de examene." }
-  }
-
-  // Fail loudly before attempting the insert (don't rely on a DB constraint).
-  if ((count ?? 0) >= maxPersonal) {
-    return { success: false, error: "Ai atins limita de examene proprii" }
-  }
-
-  const { data: created, error: insertError } = await supabase
-    .from("examene")
-    .insert({ nume_examen: examName, org_id: null, creator_user_id: user.id })
-    .select("id")
-    .single()
-  if (insertError || !created) {
-    return { success: false, error: insertError?.message ?? "Nu s-a putut crea examenul." }
-  }
-
-  revalidatePath("/profile")
-  return { success: true, examId: Number(created.id) }
 }
 
 export async function requestAccountDeletion(): Promise<ActionResult> {

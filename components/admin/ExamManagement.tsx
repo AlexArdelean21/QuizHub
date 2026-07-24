@@ -33,6 +33,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ModalPortal } from "@/components/ui/modal-portal"
 import { QuestionEditorModal } from "@/components/admin/QuestionEditorModal"
+import { parsePlainTextToQuestions } from "@/lib/exams/parse"
 
 type ToastState = {
   type: "success" | "error"
@@ -54,60 +55,6 @@ type PreviewSummary = {
 }
 
 const PAGE_SIZE = 10
-
-function parsePlainTextToQuestions(text: string): {
-  questions: Array<{
-    question: string
-    answers: string[]
-    correct: number[]
-  }>
-} {
-  const questions: Array<{ question: string; answers: string[]; correct: number[] }> = []
-
-  // Split by numbered question patterns: "1.", "1)", "Q1.", etc.
-  const blocks = text
-    .split(/\n(?=\s*\d+[\.\)]|\s*[Qq]\d+[\.\)])/)
-    .map((b) => b.trim())
-    .filter(Boolean)
-
-  for (const block of blocks) {
-    const lines = block.split("\n").map((l) => l.trim()).filter(Boolean)
-    if (!lines.length) continue
-
-    // First line is the question (remove leading number)
-    const questionLine = lines[0].replace(/^\s*\d+[\.\)]\s*/, "").trim()
-    if (!questionLine) continue
-
-    const answers: string[] = []
-    const correct: number[] = []
-
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i]
-      // Match: a) text *, a) text ✓, * a) text, etc.
-      const match =
-        line.match(/^[a-zA-Z\*\-]\s*[\.\)]\s*(.+)/) ??
-        line.match(/^[\-\*\•]\s+(.+)/)
-      if (!match) continue
-
-      let answerText = match[1].trim()
-      const isCorrect = /[\*✓✔]/.test(answerText) || /[\*✓✔]/.test(line.slice(0, 3))
-
-      // Remove the correct marker from the answer text
-      answerText = answerText.replace(/\s*[\*✓✔]\s*$/, "").trim()
-
-      answers.push(answerText)
-      if (isCorrect) {
-        correct.push(answers.length) // 1-based index
-      }
-    }
-
-    if (answers.length >= 2 && correct.length >= 1) {
-      questions.push({ question: questionLine, answers, correct })
-    }
-  }
-
-  return { questions }
-}
 
 export function ExamManagement({
   examene,

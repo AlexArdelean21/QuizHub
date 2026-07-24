@@ -3,7 +3,6 @@
 import { randomBytes } from "crypto"
 import { revalidatePath } from "next/cache"
 import { createClient } from "@supabase/supabase-js"
-import ExcelJS from "exceljs"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import {
   AdminAccessError,
@@ -17,6 +16,12 @@ import {
   MIN_QUIZ_VARIANTS,
   OPTION_IDS,
 } from "@/lib/quiz/types"
+import {
+  normalizeText,
+  parseExamJson,
+  type ParsedExamQuestion,
+} from "@/lib/exams/parse"
+import { parseExamWorkbook } from "@/lib/exams/parse-excel"
 
 function getAdminServiceClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -175,26 +180,6 @@ async function assertOrgLimit(
   }
 }
 
-type ParsedExamQuestion = {
-  intrebare_text: string
-  /** Ordered variant texts (2..10). */
-  variante: string[]
-  /** Lower-case option ids whose Excel cell was filled. */
-  raspunsuri_corecte: string[]
-  /** First three variants mirrored into legacy columns for backwards
-   *  compatibility with code paths that still read `varianta_a/b/c`. */
-  varianta_a: string
-  varianta_b: string
-  varianta_c: string
-  /** First correct answer mirrored into the legacy single-letter column. */
-  raspuns_corect: string
-}
-
-type ParseExamResult = {
-  questions: ParsedExamQuestion[]
-  skippedRows: number
-}
-
 export type PreviewRow = {
   idx: number
   intrebare_text: string
@@ -221,10 +206,6 @@ type DedupRpcRow = {
 type PreviewRowWithHash = PreviewRow & {
   content_hash: string
 }
-
-// Column B in the import spreadsheet starts the answer variants. The sheet
-// is allowed to have up to `MAX_QUIZ_VARIANTS` variant columns (B..K).
-const MIN_VARIANT_COL = 2
 
 export type AdminStats = {
   totalUtilizatori: number
@@ -311,185 +292,6 @@ export async function updateUserActivity() {
   }
 
   return { updated: true }
-}
-
-function cellValueToText(value: unknown) {
-  if (value == null) return ""
-  if (typeof value === "string") return value
-  if (typeof value === "number" || typeof value === "boolean") return String(value)
-  if (value instanceof Date) return value.toISOString()
-
-  if (typeof value === "object") {
-    const asRecord = value as Record<string, unknown>
-    if (Array.isArray(asRecord.richText)) {
-      return asRecord.richText
-        .map((part) => {
-          if (part && typeof part === "object" && "text" in (part as Record<string, unknown>)) {
-            return String((part as Record<string, unknown>).text ?? "")
-          }
-          return ""
-        })
-        .join("")
-    }
-    if (asRecord.text != null) return String(asRecord.text)
-    if (asRecord.result != null) return String(asRecord.result)
-    if (asRecord.hyperlink != null && asRecord.text != null) return String(asRecord.text)
-  }
-
-  return String(value)
-}
-
-function normalizeText(value: unknown) {
-  return cellValueToText(value).replace(/\s+/g, " ").trim()
-}
-
-function hasFill(cell: ExcelJS.Cell) {
-  const fill = cell.fill
-  if (!fill) return false
-  if (fill.type === "pattern") return Boolean(fill.pattern && fill.pattern !== "none")
-  if (fill.type === "gradient") return true
-  return false
-}
-
-function readVariantTexts(row: ExcelJS.Row): string[] {
-  const collected: string[] = []
-  let lastNonEmpty = -1
-  for (let i = 0; i < MAX_QUIZ_VARIANTS; i++) {
-    const cell = row.getCell(MIN_VARIANT_COL + i)
-    const text = normalizeText(cell.value)
-    collected.push(text)
-    if (text) lastNonEmpty = i
-  }
-  return lastNonEmpty < 0 ? [] : collected.slice(0, lastNonEmpty + 1)
-}
-
-function detectCorrectAnswers(row: ExcelJS.Row, variantCount: number): string[] {
-  const labels: string[] = []
-  for (let i = 0; i < variantCount; i++) {
-    const cell = row.getCell(MIN_VARIANT_COL + i)
-    if (hasFill(cell)) labels.push(OPTION_IDS[i])
-  }
-  return labels
-}
-
-function parseExamJson(jsonString: string): ParseExamResult {
-  let raw: unknown
-  try {
-    raw = JSON.parse(jsonString)
-  } catch {
-    throw new Error("JSON invalid. Verifică formatul fișierului.")
-  }
-
-  const asRecord = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null
-  if (!asRecord || !Array.isArray(asRecord.questions)) {
-    throw new Error('JSON-ul trebuie să conțină un câmp "questions" de tip array.')
-  }
-
-  const questions: ParsedExamQuestion[] = []
-  let skippedRows = 0
-
-  for (const item of asRecord.questions as unknown[]) {
-    if (!item || typeof item !== "object") {
-      skippedRows++
-      continue
-    }
-    const q = item as Record<string, unknown>
-
-    const intrebare_text = typeof q.question === "string" ? q.question.replace(/\s+/g, " ").trim() : ""
-    if (!intrebare_text) {
-      skippedRows++
-      continue
-    }
-
-    const variante = Array.isArray(q.answers)
-      ? (q.answers as unknown[]).map((a) => String(a ?? "").replace(/\s+/g, " ").trim())
-      : []
-
-    if (
-      variante.length < MIN_QUIZ_VARIANTS ||
-      variante.length > MAX_QUIZ_VARIANTS ||
-      variante.some((v) => !v)
-    ) {
-      skippedRows++
-      continue
-    }
-
-    const correctRaw = Array.isArray(q.correct) ? (q.correct as unknown[]) : []
-    const raspunsuri_corecte = correctRaw
-      .map((c) => Number(c))
-      .filter((c) => Number.isFinite(c) && c >= 1 && c <= variante.length)
-      .map((c) => OPTION_IDS[c - 1])
-
-    if (raspunsuri_corecte.length === 0) {
-      skippedRows++
-      continue
-    }
-
-    questions.push({
-      intrebare_text,
-      variante,
-      raspunsuri_corecte,
-      varianta_a: variante[0] ?? "",
-      varianta_b: variante[1] ?? "",
-      varianta_c: variante[2] ?? "",
-      raspuns_corect: raspunsuri_corecte[0],
-    })
-  }
-
-  return { questions, skippedRows }
-}
-
-async function parseExamWorkbook(buffer: Buffer): Promise<ParseExamResult> {
-  const workbook = new ExcelJS.Workbook()
-  await workbook.xlsx.load(buffer as any)
-
-  const questions: ParsedExamQuestion[] = []
-  let skippedRows = 0
-
-  for (const sheet of workbook.worksheets) {
-    sheet.eachRow({ includeEmpty: false }, (row) => {
-      const intrebare_text = normalizeText(row.getCell(1).value)
-      const variante = readVariantTexts(row)
-
-      if (!intrebare_text && variante.length === 0) {
-        return
-      }
-
-      // Reject rows that don't carry the minimum amount of information
-      // needed to render a quiz question.
-      if (
-        !intrebare_text ||
-        variante.length < MIN_QUIZ_VARIANTS ||
-        variante.some((text) => !text)
-      ) {
-        skippedRows += 1
-        return
-      }
-
-      const raspunsuri_corecte = detectCorrectAnswers(row, variante.length)
-      if (raspunsuri_corecte.length === 0) {
-        skippedRows += 1
-        return
-      }
-
-      questions.push({
-        intrebare_text,
-        variante,
-        raspunsuri_corecte,
-        // Mirror the first three variants & first correct answer into
-        // legacy columns. The DB trigger keeps these in sync going forward,
-        // but writing them here too means any reader that hits the database
-        // immediately (before the trigger-synced copies are visible to a
-        // cache) still sees a consistent question.
-        varianta_a: variante[0] ?? "",
-        varianta_b: variante[1] ?? "",
-        varianta_c: variante[2] ?? "",
-        raspuns_corect: raspunsuri_corecte[0],
-      })
-    })
-  }
-
-  return { questions, skippedRows }
 }
 
 function getFileFromFormData(formData: FormData) {

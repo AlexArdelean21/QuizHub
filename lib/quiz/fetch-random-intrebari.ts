@@ -287,6 +287,7 @@ function mapExamSummary(row: {
   variante_raspuns?: unknown
   durata_minute?: unknown
   timp_alocat_minute?: unknown
+  org_id?: unknown
 }): ExamSummary | null {
   const id = Number(row.id)
   if (!Number.isFinite(id) || id <= 0) return null
@@ -303,7 +304,26 @@ function mapExamSummary(row: {
       : Number.isFinite(fallbackDuration) && fallbackDuration > 0
         ? fallbackDuration
         : 30,
+    isPersonal: row.org_id == null,
   }
+}
+
+// Personal exams have no owning organization. This query matches the partial
+// index `examene_creator_user_id_idx ON examene (creator_user_id) WHERE org_id IS NULL`
+// from migration 20260707130000.
+async function fetchPersonalExams(
+  supabase: SupabaseClient,
+  userId: string,
+  selectColumns: string
+): Promise<Array<Record<string, unknown>>> {
+  const { data, error } = await supabase
+    .from("examene")
+    .select(selectColumns)
+    .is("org_id", null)
+    .eq("creator_user_id", userId)
+    .order("id", { ascending: true })
+  if (error) throw new Error(error.message)
+  return (data ?? []) as unknown as Array<Record<string, unknown>>
 }
 
 export async function fetchAccessibleExams(
@@ -323,7 +343,7 @@ export async function fetchAccessibleExams(
   const orgId = profile?.org_id ? String(profile.org_id) : null
 
   const selectColumns =
-    "id, nume_examen, prag_trecere, intrebari_simulare, variante_raspuns, durata_minute, timp_alocat_minute, org_id"
+    "id, nume_examen, prag_trecere, intrebari_simulare, variante_raspuns, durata_minute, timp_alocat_minute, org_id, creator_user_id"
 
   const orderById = { ascending: true } as const
 
@@ -336,7 +356,7 @@ export async function fetchAccessibleExams(
         if (!acc.some((exam) => exam.id === current.id)) acc.push(current)
         return acc
       }, [])
-      .sort((a, b) => a.id - b.id)
+      .sort((a, b) => Number(a.isPersonal) - Number(b.isPersonal) || a.id - b.id)
 
   if (isSuperAdminRole(role)) {
     const { data, error } = await supabase
@@ -348,11 +368,15 @@ export async function fetchAccessibleExams(
   }
 
   if (isAdminRole(role)) {
-    let query = supabase.from("examene").select(selectColumns).order("id", orderById)
-    if (orgId) query = query.eq("org_id", orgId)
-    const { data, error } = await query
-    if (error) throw new Error(error.message)
-    return safeMap(((data ?? []) as Array<Record<string, unknown>>))
+    let orgQuery = supabase.from("examene").select(selectColumns).order("id", orderById)
+    if (orgId) orgQuery = orgQuery.eq("org_id", orgId)
+    const [orgResult, personalRows] = await Promise.all([
+      orgQuery,
+      fetchPersonalExams(supabase, userId, selectColumns),
+    ])
+    if (orgResult.error) throw new Error(orgResult.error.message)
+    const orgRows = (orgResult.data ?? []) as Array<Record<string, unknown>>
+    return safeMap([...orgRows, ...personalRows])
   }
 
   // Regular user — restricted to non-expired entries from `acces_examene`.
@@ -367,16 +391,24 @@ export async function fetchAccessibleExams(
   const accessIds = [
     ...new Set((accessRows ?? []).map((row) => Number(row.examen_id)).filter(isValidId)),
   ]
-  if (accessIds.length === 0) return []
 
-  const { data, error } = await supabase
-    .from("examene")
-    .select(selectColumns)
-    .in("id", accessIds)
-    .order("id", orderById)
+  const fetchAccessExams = async (): Promise<Array<Record<string, unknown>>> => {
+    // Skip the query entirely for an empty list; `.in()` with [] is a wasted round-trip.
+    if (accessIds.length === 0) return []
+    const { data, error } = await supabase
+      .from("examene")
+      .select(selectColumns)
+      .in("id", accessIds)
+      .order("id", orderById)
+    if (error) throw new Error(error.message)
+    return (data ?? []) as Array<Record<string, unknown>>
+  }
 
-  if (error) throw new Error(error.message)
-  return safeMap(((data ?? []) as Array<Record<string, unknown>>))
+  const [accessExamRows, personalRows] = await Promise.all([
+    fetchAccessExams(),
+    fetchPersonalExams(supabase, userId, selectColumns),
+  ])
+  return safeMap([...accessExamRows, ...personalRows])
 }
 
 export async function fetchDistinctExamIds(

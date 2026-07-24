@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { ChevronDown } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
 import type { ExamSummary } from "@/lib/quiz/types"
 
 type Props = {
@@ -31,8 +32,11 @@ export function ExamSelector({ exams, selectedId, onChange, className }: Props) 
 
   if (exams.length <= 1) {
     return (
-      <div className="rounded-xl border border-border/60 bg-secondary/40 px-4 py-2 text-sm text-muted-foreground">
-        {selectedExam?.name ?? "Examen unic"}
+      <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-secondary/40 px-4 py-2 text-sm text-muted-foreground">
+        <span className="truncate">{selectedExam?.name ?? "Examen unic"}</span>
+        {selectedExam?.isPersonal ? (
+          <Badge variant="secondary" className="shrink-0">Personal</Badge>
+        ) : null}
       </div>
     )
   }
@@ -46,8 +50,13 @@ export function ExamSelector({ exams, selectedId, onChange, className }: Props) 
         onClick={() => setOpen((prev) => !prev)}
         className="flex w-full items-center justify-between rounded-xl border border-border/60 bg-card/70 px-4 py-2.5 text-sm font-medium text-foreground shadow-sm backdrop-blur transition hover:border-primary/40 hover:bg-card focus:outline-none focus:ring-2 focus:ring-primary/40"
       >
-        <span className="truncate">{selectedExam?.name ?? "Selectează examen"}</span>
-        <ChevronDown className={`size-4 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="truncate">{selectedExam?.name ?? "Selectează examen"}</span>
+          {selectedExam?.isPersonal ? (
+            <Badge variant="secondary" className="shrink-0">Personal</Badge>
+          ) : null}
+        </span>
+        <ChevronDown className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
 
       {open && (
@@ -73,7 +82,12 @@ export function ExamSelector({ exams, selectedId, onChange, className }: Props) 
                     : "text-foreground hover:bg-secondary/60"
                 }`}
               >
-                <span className="truncate">{exam.name}</span>
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="truncate">{exam.name}</span>
+                  {exam.isPersonal ? (
+                    <Badge variant="secondary" className="shrink-0">Personal</Badge>
+                  ) : null}
+                </span>
                 <span className="ml-3 shrink-0 text-xs text-muted-foreground">
                   {exam.intrebariSimulare} q
                 </span>

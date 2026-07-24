@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useEffect, useState } from "react"
-import { BarChart3, BookOpen, LogOut, Menu, Moon, Sun, X } from "lucide-react"
+import { BarChart3, BookOpen, FileText, LogOut, Menu, Moon, Sun, X } from "lucide-react"
 import { usePathname } from "next/navigation"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import { useTrackActivity } from "@/hooks/use-track-activity"
@@ -249,6 +249,17 @@ export function GlobalHeader() {
               <BookOpen className="size-4" />
               Documentație
             </Link>
+
+            {userEmail && (
+              <Link
+                href="/my-exams"
+                onClick={() => closeSidebar()}
+                className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-900"
+              >
+                <FileText className="size-4" />
+                Examenele mele
+              </Link>
+            )}
 
             {!isStatisticsRoute && (
               <Link

@@ -53,6 +53,8 @@ export type ExamSummary = {
   /** Max number of variants admins can configure as a default in the rules. */
   varianteRaspuns: number
   durataMinute: number
+  /** True when the exam has no owning organization (examene.org_id IS NULL). */
+  isPersonal: boolean
 }
 
 /** Returns true when two answer-id sets are equivalent (order-independent). */
