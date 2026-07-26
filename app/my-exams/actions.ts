@@ -31,6 +31,35 @@ export type PersonalExamRulesPayload = {
   durata_minute: number
 }
 
+export type PreviewRow = {
+  idx: number
+  intrebare_text: string
+  variante: string[]
+  raspunsuri_corecte: string[]
+  duplicate_in_db: boolean
+  duplicate_in_batch: boolean
+}
+
+export type PreviewSummary = {
+  total: number
+  new: number
+  duplicate_in_db: number
+  duplicate_in_batch: number
+}
+
+export type PreviewResult = {
+  rows: PreviewRow[]
+  summary: PreviewSummary
+  skippedRows: number
+}
+
+type DedupRpcRow = {
+  idx: number
+  content_hash: string
+  duplicate_in_db: boolean
+  duplicate_in_batch: boolean
+}
+
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>
 
 const NOT_AUTHENTICATED = "Trebuie să fii autentificat."
@@ -363,6 +392,97 @@ export async function importPersonalExamFromJson(
     return await insertPersonalQuestions(admin, userId, examId, parsed.questions)
   } catch (error) {
     return { success: false, error: toActionError(error) }
+  }
+}
+
+/**
+ * Excel preview for personal exams. Mirrors the shape of the admin preview
+ * (rows + summary + skippedRows) so the client can reuse the same UI, but never
+ * touches the admin action (which is gated by assertAdminActor).
+ *
+ * - With an `examId`: ownership is asserted and candidates are deduped against
+ *   that exam's existing questions.
+ * - Without an `examId` (create-time preview): the exam doesn't exist yet, so
+ *   there is no DB dedup — rows come back as "Nou", with in-file duplicates
+ *   still flagged by the RPC.
+ */
+export async function previewPersonalExcelImport(
+  formData: FormData
+): Promise<PreviewResult> {
+  const rawExamId = formData.get("examId")
+  let examId: number | null = null
+  let admin: AdminClient
+
+  if (typeof rawExamId === "string" && rawExamId.trim() !== "") {
+    const parsedId = Number(rawExamId)
+    if (!Number.isFinite(parsedId)) {
+      throw new Error("Identificator de examen invalid.")
+    }
+    examId = parsedId
+    const ownership = await assertPersonalExamOwner(examId)
+    admin = ownership.admin
+  } else {
+    const supabase = await createSupabaseServerClient()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) throw new Error(NOT_AUTHENTICATED)
+    admin = createSupabaseAdminClient()
+  }
+
+  const rawFile = formData.get("file")
+  if (!(rawFile instanceof File)) {
+    throw new Error("Fișierul Excel lipsește.")
+  }
+  const buffer = Buffer.from(await rawFile.arrayBuffer())
+  const parsed = await parseExamWorkbook(buffer)
+
+  const candidates = parsed.questions.map((question) => ({
+    intrebare_text: question.intrebare_text,
+    variante: question.variante,
+  }))
+
+  const { data, error } = await admin.rpc("preview_intrebari_dedup", {
+    p_examen_id: examId,
+    p_candidates: candidates,
+  })
+  if (error) throw new Error(error.message)
+
+  const dedupByIndex = new Map<number, DedupRpcRow>()
+  for (const row of (data ?? []) as DedupRpcRow[]) {
+    dedupByIndex.set(Number(row.idx), {
+      idx: Number(row.idx),
+      content_hash: String(row.content_hash ?? ""),
+      duplicate_in_db: Boolean(row.duplicate_in_db),
+      duplicate_in_batch: Boolean(row.duplicate_in_batch),
+    })
+  }
+
+  const rows: PreviewRow[] = parsed.questions.map((question, idx) => {
+    const dedup = dedupByIndex.get(idx)
+    return {
+      idx,
+      intrebare_text: question.intrebare_text,
+      variante: [...question.variante],
+      raspunsuri_corecte: [...question.raspunsuri_corecte],
+      duplicate_in_db: dedup?.duplicate_in_db ?? false,
+      duplicate_in_batch: dedup?.duplicate_in_batch ?? false,
+    }
+  })
+
+  const duplicateInDb = rows.filter((row) => row.duplicate_in_db).length
+  const duplicateInBatch = rows.filter((row) => row.duplicate_in_batch).length
+  const fresh = rows.filter((row) => !row.duplicate_in_db && !row.duplicate_in_batch).length
+
+  return {
+    rows,
+    summary: {
+      total: rows.length,
+      new: fresh,
+      duplicate_in_db: duplicateInDb,
+      duplicate_in_batch: duplicateInBatch,
+    },
+    skippedRows: parsed.skippedRows,
   }
 }
 
