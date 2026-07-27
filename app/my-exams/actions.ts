@@ -27,7 +27,6 @@ export type ImportResult =
 export type PersonalExamRulesPayload = {
   prag_trecere: number
   intrebari_simulare: number
-  variante_raspuns: number
   durata_minute: number
 }
 
@@ -459,13 +458,6 @@ export async function updatePersonalExamRules(
     if (!Number.isFinite(intrebariSimulare)) {
       return { success: false, error: "Număr de întrebări invalid." }
     }
-    const varianteRaspuns = Math.max(
-      MIN_QUIZ_VARIANTS,
-      Math.min(MAX_QUIZ_VARIANTS, Math.floor(Number(payload.variante_raspuns)))
-    )
-    if (!Number.isFinite(varianteRaspuns)) {
-      return { success: false, error: "Număr de variante invalid." }
-    }
     const durataMinute = Math.max(1, Math.floor(Number(payload.durata_minute)))
     if (!Number.isFinite(durataMinute)) {
       return { success: false, error: "Durata invalidă." }
@@ -500,7 +492,6 @@ export async function updatePersonalExamRules(
       .update({
         prag_trecere: pragTrecere,
         intrebari_simulare: intrebariSimulare,
-        variante_raspuns: varianteRaspuns,
         durata_minute: durataMinute,
       })
       .eq("id", examId)

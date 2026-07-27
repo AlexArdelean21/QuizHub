@@ -7,10 +7,11 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ClipboardList,
   FileJson,
   FilePlus2,
   FileSpreadsheet,
-  Pencil,
+  MoreHorizontal,
   Plus,
   Search,
   Settings2,
@@ -31,6 +32,13 @@ import {
 } from "@/app/admin/actions"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { ModalPortal } from "@/components/ui/modal-portal"
 import { QuestionEditorModal } from "@/components/admin/QuestionEditorModal"
 import { parsePlainTextToQuestions } from "@/lib/exams/parse"
@@ -55,6 +63,9 @@ type PreviewSummary = {
 }
 
 const PAGE_SIZE = 10
+
+const rowActionBtn =
+  "inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
 
 export function ExamManagement({
   examene,
@@ -85,13 +96,14 @@ export function ExamManagement({
   const [deleteTargetExam, setDeleteTargetExam] = useState<AdminExamRow | null>(null)
   const [deleteConfirmationInput, setDeleteConfirmationInput] = useState("")
   const [questionEditorExam, setQuestionEditorExam] = useState<AdminExamRow | null>(null)
-  const [rulesTargetExam, setRulesTargetExam] = useState<AdminExamRow | null>(null)
-  const [rulesDraft, setRulesDraft] = useState({
+  const [settingsTargetExam, setSettingsTargetExam] = useState<AdminExamRow | null>(null)
+  const [settingsDraft, setSettingsDraft] = useState({
+    nume_examen: "",
     prag_trecere: 18,
     intrebari_simulare: 25,
-    variante_raspuns: 3,
     durata_minute: 30,
   })
+  const [settingsError, setSettingsError] = useState<string | null>(null)
 
   const [uploadMode, setUploadMode] = useState<"excel" | "json" | "text">("excel")
   const [jsonText, setJsonText] = useState("")
@@ -359,35 +371,53 @@ export function ExamManagement({
     setEditFile(null)
   }
 
-  const handleOpenRulesModal = (exam: AdminExamRow) => {
+  const handleOpenSettingsModal = (exam: AdminExamRow) => {
     if (isBusy) return
-    setRulesTargetExam(exam)
-    setRulesDraft({
+    setSettingsTargetExam(exam)
+    setSettingsDraft({
+      nume_examen: exam.nume_examen,
       prag_trecere: exam.prag_trecere,
       intrebari_simulare: exam.intrebari_simulare,
-      variante_raspuns: exam.variante_raspuns,
       durata_minute: exam.durata_minute,
     })
+    setSettingsError(null)
   }
 
-  const handleSaveRules = () => {
-    if (!rulesTargetExam) return
+  const handleSaveSettings = () => {
+    if (!settingsTargetExam) return
     startSavingRulesTransition(() => {
       void (async () => {
         try {
-          await updateExamRules(rulesTargetExam.id, rulesDraft)
+          const trimmedName = settingsDraft.nume_examen.trim()
+          if (!trimmedName) {
+            setSettingsError("Numele examenului nu poate fi gol.")
+            return
+          }
+
+          if (trimmedName !== settingsTargetExam.nume_examen) {
+            const formData = new FormData()
+            formData.set("examId", String(settingsTargetExam.id))
+            formData.set("examName", trimmedName)
+            await updateExam(formData)
+          }
+
+          await updateExamRules(settingsTargetExam.id, {
+            prag_trecere: settingsDraft.prag_trecere,
+            intrebari_simulare: settingsDraft.intrebari_simulare,
+            durata_minute: settingsDraft.durata_minute,
+          })
+
           pushToast({
             type: "success",
-            message: "Regulile examenului au fost actualizate.",
+            message: "Setările examenului au fost actualizate.",
           })
-          setRulesTargetExam(null)
+          setSettingsTargetExam(null)
           router.refresh()
         } catch (error) {
-          console.error("Update rules failed:", error)
-          pushToast({
-            type: "error",
-            message: error instanceof Error ? error.message : "Nu s-au putut salva regulile.",
-          })
+          console.error("Update settings failed:", error)
+          setSettingsError(
+            error instanceof Error ? error.message : "Nu s-au putut salva setările.",
+          )
         }
       })()
     })
@@ -482,6 +512,57 @@ export function ExamManagement({
       })()
     })
   }
+
+  const renderExamActions = (exam: AdminExamRow, iconSize: string) => (
+    <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+      <button
+        type="button"
+        onClick={() => setQuestionEditorExam(exam)}
+        disabled={isBusy}
+        className={rowActionBtn}
+      >
+        <ClipboardList className={iconSize} /> Întrebări
+      </button>
+      <button
+        type="button"
+        onClick={() => handleOpenUpdateModal(exam)}
+        disabled={isBusy}
+        className={rowActionBtn}
+        aria-label="Adaugă întrebări"
+      >
+        <Upload className={iconSize} /> Adaugă întrebări
+      </button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            disabled={isBusy}
+            className={rowActionBtn}
+            aria-label="Mai multe acțiuni"
+          >
+            <MoreHorizontal className={iconSize} />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => handleOpenSettingsModal(exam)}>
+            <Settings2 />
+            Setări examen
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onClick={() => {
+              setDeleteTargetExam(exam)
+              setDeleteConfirmationInput("")
+            }}
+            className="text-destructive focus:text-destructive"
+          >
+            <Trash2 />
+            Șterge
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  )
 
   return (
     <section
@@ -593,40 +674,7 @@ export function ExamManagement({
                         </div>
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => setQuestionEditorExam(exam)}
-                            disabled={isBusy}
-                            className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-                          >
-                            <Pencil className="size-3.5" /> Întrebări
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenRulesModal(exam)}
-                            disabled={isBusy}
-                            className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-                          >
-                            <Settings2 className="size-3.5" /> Reguli
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenUpdateModal(exam)}
-                            disabled={isBusy}
-                            className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-                          >
-                            <Upload className="size-3.5" /> Update
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => { setDeleteTargetExam(exam); setDeleteConfirmationInput("") }}
-                            disabled={isBusy}
-                            className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-100 disabled:opacity-50 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-400 dark:hover:bg-rose-500/20"
-                          >
-                            <Trash2 className="size-3.5" /> Șterge
-                          </button>
-                        </div>
+                        {renderExamActions(exam, "size-3.5")}
                       </td>
                     </tr>
                   ))
@@ -669,35 +717,8 @@ export function ExamManagement({
                       prag {exam.prag_trecere}
                     </span>
                   </div>
-                  <div className="flex flex-col gap-1.5 pt-1">
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => setQuestionEditorExam(exam)}
-                        className="flex items-center gap-1 rounded-md bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-                      >
-                        <Pencil className="size-3" /> Întrebări
-                      </button>
-                      <button
-                        onClick={() => handleOpenRulesModal(exam)}
-                        className="flex items-center gap-1 rounded-md bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-                      >
-                        <Settings2 className="size-3" /> Reguli
-                      </button>
-                      <button
-                        onClick={() => handleOpenUpdateModal(exam)}
-                        className="flex items-center gap-1 rounded-md bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-                      >
-                        <Upload className="size-3" /> Update
-                      </button>
-                    </div>
-                    <div className="flex justify-end">
-                      <button
-                        onClick={() => { setDeleteTargetExam(exam); setDeleteConfirmationInput("") }}
-                        className="flex items-center gap-1 rounded-md bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-100 dark:bg-rose-500/10 dark:text-rose-400 dark:hover:bg-rose-500/20"
-                      >
-                        <Trash2 className="size-3" /> Șterge
-                      </button>
-                    </div>
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                    {renderExamActions(exam, "size-3")}
                   </div>
                 </div>
               ))
@@ -1230,7 +1251,7 @@ c) 100 Hz`}
           <button
             type="button"
             className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            aria-label="Închide editarea"
+            aria-label="Închide adăugarea întrebărilor"
             onClick={() => {
               if (!savingUpdate) {
                 setEditTargetExam(null)
@@ -1245,7 +1266,7 @@ c) 100 Hz`}
           />
           <div className="relative z-10 w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-800 dark:bg-slate-950 max-h-[90vh] overflow-y-auto">
             <h4 className="text-lg font-semibold text-slate-900 dark:text-white">
-              Update examen
+              Adaugă întrebări
             </h4>
             <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
               Poți modifica numele examenului și/sau adăuga întrebări noi.
@@ -1470,29 +1491,42 @@ c) 100 Hz`}
         </ModalPortal>
       ) : null}
 
-      {rulesTargetExam ? (
+      {settingsTargetExam ? (
         <ModalPortal>
         <div className="fixed inset-0 z-[96] flex items-center justify-center p-4">
           <button
             type="button"
             className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            aria-label="Închide modal reguli"
+            aria-label="Închide setările examenului"
             onClick={() => {
-              if (!savingRules) setRulesTargetExam(null)
+              if (!savingRules) setSettingsTargetExam(null)
             }}
           />
           <div className="relative z-10 w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-800 dark:bg-slate-950">
             <div className="flex items-start justify-between">
               <div>
                 <h4 className="text-lg font-semibold text-slate-900 dark:text-white">
-                  Reguli simulare
+                  Setări examen
                 </h4>
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                  {rulesTargetExam.nume_examen}
+                  ID #{settingsTargetExam.id} · {settingsTargetExam.question_count} întrebări
                 </p>
               </div>
               <Settings2 className="size-5 text-blue-500" />
             </div>
+
+            <label className="mt-4 block text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              Nume examen
+              <input
+                value={settingsDraft.nume_examen}
+                onChange={(event) =>
+                  setSettingsDraft((prev) => ({ ...prev, nume_examen: event.target.value }))
+                }
+                autoFocus
+                disabled={savingRules}
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+              />
+            </label>
 
             <div className="mt-4 grid grid-cols-2 gap-3">
               <label className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -1500,9 +1534,9 @@ c) 100 Hz`}
                 <input
                   type="number"
                   min={1}
-                  value={rulesDraft.intrebari_simulare}
+                  value={settingsDraft.intrebari_simulare}
                   onChange={(event) =>
-                    setRulesDraft((prev) => ({
+                    setSettingsDraft((prev) => ({
                       ...prev,
                       intrebari_simulare: Number(event.target.value),
                     }))
@@ -1516,9 +1550,9 @@ c) 100 Hz`}
                 <input
                   type="number"
                   min={1}
-                  value={rulesDraft.durata_minute}
+                  value={settingsDraft.durata_minute}
                   onChange={(event) =>
-                    setRulesDraft((prev) => ({
+                    setSettingsDraft((prev) => ({
                       ...prev,
                       durata_minute: Number(event.target.value),
                     }))
@@ -1527,14 +1561,14 @@ c) 100 Hz`}
                   className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
                 />
               </label>
-              <label className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <label className="col-span-2 text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Prag trecere
                 <input
                   type="number"
                   min={1}
-                  value={rulesDraft.prag_trecere}
+                  value={settingsDraft.prag_trecere}
                   onChange={(event) =>
-                    setRulesDraft((prev) => ({
+                    setSettingsDraft((prev) => ({
                       ...prev,
                       prag_trecere: Number(event.target.value),
                     }))
@@ -1543,46 +1577,31 @@ c) 100 Hz`}
                   className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
                 />
               </label>
-              <label className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                Variante răspuns (max implicit)
-                <input
-                  type="number"
-                  min={2}
-                  max={10}
-                  value={rulesDraft.variante_raspuns}
-                  onChange={(event) =>
-                    setRulesDraft((prev) => ({
-                      ...prev,
-                      variante_raspuns: Number(event.target.value),
-                    }))
-                  }
-                  disabled={savingRules}
-                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
-                />
-              </label>
             </div>
-            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-              Notă: &bdquo;Variante răspuns&rdquo; este un maxim implicit. În quiz, fiecare
-              întrebare se afișează exact cu numărul de variante stocat în coloana JSONB{" "}
-              <code>variante</code>.
-            </p>
+            {/* variante_raspuns: deprecat la nivel de UI — coloana rămâne în DB dar nu mai e editabilă. */}
+
+            {settingsError ? (
+              <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400">
+                {settingsError}
+              </div>
+            ) : null}
 
             <div className="mt-5 flex justify-end gap-2">
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() => setRulesTargetExam(null)}
+                onClick={() => setSettingsTargetExam(null)}
                 disabled={savingRules}
               >
                 Anulează
               </Button>
               <Button
                 type="button"
-                onClick={handleSaveRules}
+                onClick={handleSaveSettings}
                 disabled={savingRules}
                 className="bg-blue-600 text-white hover:bg-blue-500"
               >
-                {savingRules ? "Se salvează..." : "Salvează regulile"}
+                {savingRules ? "Se salvează..." : "Salvează"}
               </Button>
             </div>
           </div>

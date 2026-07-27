@@ -8,7 +8,7 @@ import {
   FileJson,
   FilePlus2,
   FileSpreadsheet,
-  Pencil,
+  MoreHorizontal,
   Plus,
   Settings2,
   Trash2,
@@ -16,6 +16,13 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { ModalPortal } from "@/components/ui/modal-portal"
 import {
   Tooltip,
@@ -32,7 +39,6 @@ import {
   renamePersonalExam,
   updatePersonalExamRules,
   type ImportResult,
-  type PersonalExamRulesPayload,
   type PreviewResult,
 } from "@/app/my-exams/actions"
 import { PersonalQuestionEditorModal } from "@/components/my-exams/PersonalQuestionEditorModal"
@@ -63,8 +69,6 @@ const guideBox =
   "mt-2 max-h-52 overflow-y-auto rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 dark:border-blue-800/40 dark:bg-blue-500/10 dark:text-blue-300"
 const rowActionBtn =
   "inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-const rowDeleteBtn =
-  "inline-flex items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-100 disabled:opacity-50 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-400 dark:hover:bg-rose-500/20"
 const ruleBadge =
   "rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 dark:border-slate-700 dark:bg-slate-800"
 
@@ -98,18 +102,14 @@ export function MyExamsManager({
 
   const [importTarget, setImportTarget] = useState<PersonalExamItem | null>(null)
 
-  const [renameTarget, setRenameTarget] = useState<PersonalExamItem | null>(null)
-  const [renameValue, setRenameValue] = useState("")
-  const [renameError, setRenameError] = useState<string | null>(null)
-
-  const [rulesTarget, setRulesTarget] = useState<PersonalExamItem | null>(null)
-  const [rulesDraft, setRulesDraft] = useState<PersonalExamRulesPayload>({
+  const [settingsTarget, setSettingsTarget] = useState<PersonalExamItem | null>(null)
+  const [settingsDraft, setSettingsDraft] = useState({
+    nume_examen: "",
     prag_trecere: 18,
     intrebari_simulare: 25,
-    variante_raspuns: 3,
     durata_minute: 30,
   })
-  const [rulesError, setRulesError] = useState<string | null>(null)
+  const [settingsError, setSettingsError] = useState<string | null>(null)
 
   const [questionEditorTarget, setQuestionEditorTarget] = useState<PersonalExamItem | null>(null)
 
@@ -177,21 +177,15 @@ export function MyExamsManager({
     resetContent()
   }
 
-  const openRename = (exam: PersonalExamItem) => {
-    setRenameTarget(exam)
-    setRenameValue(exam.nume_examen)
-    setRenameError(null)
-  }
-
-  const openRules = (exam: PersonalExamItem) => {
-    setRulesTarget(exam)
-    setRulesDraft({
+  const openSettings = (exam: PersonalExamItem) => {
+    setSettingsTarget(exam)
+    setSettingsDraft({
+      nume_examen: exam.nume_examen,
       prag_trecere: exam.pragTrecere || 18,
       intrebari_simulare: exam.intrebariSimulare || 25,
-      variante_raspuns: exam.varianteRaspuns || 3,
       durata_minute: exam.durataMinute || 30,
     })
-    setRulesError(null)
+    setSettingsError(null)
   }
 
   const handlePreview = (examId: number | null) => {
@@ -338,35 +332,36 @@ export function MyExamsManager({
     })
   }
 
-  const handleRename = () => {
-    if (!renameTarget) return
-    setRenameError(null)
-    const examId = renameTarget.id
+  const handleSaveSettings = () => {
+    if (!settingsTarget) return
+    setSettingsError(null)
+    const examId = settingsTarget.id
+    const trimmedName = settingsDraft.nume_examen.trim()
+    if (!trimmedName) {
+      setSettingsError("Numele examenului este obligatoriu.")
+      return
+    }
     startTransition(async () => {
-      const result = await renamePersonalExam(examId, renameValue)
-      if (!result.success) {
-        setRenameError(result.error)
-        return
+      if (trimmedName !== settingsTarget.nume_examen) {
+        const renameResult = await renamePersonalExam(examId, trimmedName)
+        if (!renameResult.success) {
+          setSettingsError(renameResult.error)
+          return
+        }
       }
-      setRenameTarget(null)
-      setToast({ type: "success", message: "Nume actualizat." })
-      router.refresh()
-    })
-  }
-
-  const handleSaveRules = () => {
-    if (!rulesTarget) return
-    setRulesError(null)
-    const examId = rulesTarget.id
-    const payload = rulesDraft
-    startTransition(async () => {
-      const result = await updatePersonalExamRules(examId, payload)
-      if (!result.success) {
-        setRulesError(result.error)
-        return
+      if (settingsTarget.questionCount > 0) {
+        const rulesResult = await updatePersonalExamRules(examId, {
+          prag_trecere: settingsDraft.prag_trecere,
+          intrebari_simulare: settingsDraft.intrebari_simulare,
+          durata_minute: settingsDraft.durata_minute,
+        })
+        if (!rulesResult.success) {
+          setSettingsError(rulesResult.error)
+          return
+        }
       }
-      setRulesTarget(null)
-      setToast({ type: "success", message: "Regulile examenului au fost actualizate." })
+      setSettingsTarget(null)
+      setToast({ type: "success", message: "Setările examenului au fost actualizate." })
       router.refresh()
     })
   }
@@ -400,6 +395,70 @@ export function MyExamsManager({
       : contentMode === "json"
         ? !contentJson.trim()
         : !contentText.trim())
+
+  const renderExamActions = (exam: PersonalExamItem, iconSize: string) => (
+    <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+      {exam.questionCount === 0 ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-block">
+              <button type="button" disabled className={`${rowActionBtn} pointer-events-none opacity-50`}>
+                <ClipboardList className={iconSize} /> Întrebări
+              </button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>Importă întâi întrebări.</TooltipContent>
+        </Tooltip>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setQuestionEditorTarget(exam)}
+          disabled={isPending}
+          className={rowActionBtn}
+        >
+          <ClipboardList className={iconSize} /> Întrebări
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={() => openImport(exam)}
+        disabled={isPending}
+        className={rowActionBtn}
+        aria-label="Adaugă întrebări"
+      >
+        <Upload className={iconSize} /> Adaugă întrebări
+      </button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            disabled={isPending}
+            className={rowActionBtn}
+            aria-label="Mai multe acțiuni"
+          >
+            <MoreHorizontal className={iconSize} />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => openSettings(exam)}>
+            <Settings2 />
+            Setări examen
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onClick={() => {
+              setDeleteTarget(exam)
+              setDeleteConfirm("")
+            }}
+            className="text-destructive focus:text-destructive"
+          >
+            <Trash2 />
+            Șterge
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  )
 
   // Shared tabs + inputs + guides + preview. Rendered as a function (not a
   // component) so inputs keep focus across re-renders.
@@ -657,59 +716,7 @@ export function MyExamsManager({
                     </div>
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
-                      <button type="button" onClick={() => openRename(exam)} disabled={isPending} className={rowActionBtn}>
-                        <Pencil className="size-3.5" /> Redenumește
-                      </button>
-                      {exam.questionCount === 0 ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span className="inline-block">
-                              <button type="button" disabled className={`${rowActionBtn} pointer-events-none opacity-50`}>
-                                <Settings2 className="size-3.5" /> Reguli
-                              </button>
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent>Importă întâi întrebări.</TooltipContent>
-                        </Tooltip>
-                      ) : (
-                        <button type="button" onClick={() => openRules(exam)} disabled={isPending} className={rowActionBtn}>
-                          <Settings2 className="size-3.5" /> Reguli
-                        </button>
-                      )}
-                      {exam.questionCount === 0 ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span className="inline-block">
-                              <button type="button" disabled className={`${rowActionBtn} pointer-events-none opacity-50`}>
-                                <ClipboardList className="size-3.5" /> Întrebări
-                              </button>
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent>Importă întâi întrebări.</TooltipContent>
-                        </Tooltip>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setQuestionEditorTarget(exam)}
-                          disabled={isPending}
-                          className={rowActionBtn}
-                        >
-                          <ClipboardList className="size-3.5" /> Întrebări
-                        </button>
-                      )}
-                      <button type="button" onClick={() => openImport(exam)} disabled={isPending} className={rowActionBtn} aria-label="Adaugă întrebări">
-                        <Upload className="size-3.5" /> Adaugă întrebări
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setDeleteTarget(exam); setDeleteConfirm("") }}
-                        disabled={isPending}
-                        className={rowDeleteBtn}
-                      >
-                        <Trash2 className="size-3.5" /> Șterge
-                      </button>
-                    </div>
+                    {renderExamActions(exam, "size-3.5")}
                   </td>
                 </tr>
               ))
@@ -740,57 +747,7 @@ export function MyExamsManager({
                 <span className={ruleBadge}>prag {exam.pragTrecere}</span>
               </div>
               <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                <button type="button" onClick={() => openRename(exam)} disabled={isPending} className={rowActionBtn}>
-                  <Pencil className="size-3" /> Redenumește
-                </button>
-                {exam.questionCount === 0 ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="inline-block">
-                        <button type="button" disabled className={`${rowActionBtn} pointer-events-none opacity-50`}>
-                          <Settings2 className="size-3" /> Reguli
-                        </button>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent>Importă întâi întrebări.</TooltipContent>
-                  </Tooltip>
-                ) : (
-                  <button type="button" onClick={() => openRules(exam)} disabled={isPending} className={rowActionBtn}>
-                    <Settings2 className="size-3" /> Reguli
-                  </button>
-                )}
-                {exam.questionCount === 0 ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="inline-block">
-                        <button type="button" disabled className={`${rowActionBtn} pointer-events-none opacity-50`}>
-                          <ClipboardList className="size-3" /> Întrebări
-                        </button>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent>Importă întâi întrebări.</TooltipContent>
-                  </Tooltip>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setQuestionEditorTarget(exam)}
-                    disabled={isPending}
-                    className={rowActionBtn}
-                  >
-                    <ClipboardList className="size-3" /> Întrebări
-                  </button>
-                )}
-                <button type="button" onClick={() => openImport(exam)} disabled={isPending} className={rowActionBtn} aria-label="Adaugă întrebări">
-                  <Upload className="size-3" /> Adaugă întrebări
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setDeleteTarget(exam); setDeleteConfirm("") }}
-                  disabled={isPending}
-                  className={rowDeleteBtn}
-                >
-                  <Trash2 className="size-3" /> Șterge
-                </button>
+                {renderExamActions(exam, "size-3")}
               </div>
             </div>
           ))
@@ -899,56 +856,34 @@ export function MyExamsManager({
         </ModalPortal>
       ) : null}
 
-      {/* Rename modal */}
-      {renameTarget ? (
+      {/* Setări examen modal */}
+      {settingsTarget ? (
         <ModalPortal>
           <div className={overlayClass}>
-            <button type="button" aria-label="Închide" className={scrimClass} onClick={() => !isPending && setRenameTarget(null)} />
+            <button type="button" aria-label="Închide" className={scrimClass} onClick={() => !isPending && setSettingsTarget(null)} />
             <div className="relative z-10 w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-800 dark:bg-slate-950">
-              <h4 className="text-lg font-semibold text-slate-900 dark:text-white">Redenumește examenul</h4>
+              <div className="flex items-start justify-between">
+                <div>
+                  <h4 className="text-lg font-semibold text-slate-900 dark:text-white">Setări examen</h4>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    ID #{settingsTarget.id} · {settingsTarget.questionCount} întrebări
+                  </p>
+                </div>
+                <Settings2 className="size-5 text-blue-500" />
+              </div>
+
               <label className="mt-4 block text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Nume examen
                 <input
-                  value={renameValue}
-                  onChange={(event) => setRenameValue(event.target.value)}
+                  value={settingsDraft.nume_examen}
+                  onChange={(event) =>
+                    setSettingsDraft((prev) => ({ ...prev, nume_examen: event.target.value }))
+                  }
                   autoFocus
                   disabled={isPending}
                   className={`mt-1 ${inputClass}`}
                 />
               </label>
-              {renameError ? (
-                <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400">
-                  {renameError}
-                </div>
-              ) : null}
-              <div className="mt-5 flex justify-end gap-2">
-                <Button type="button" variant="secondary" onClick={() => setRenameTarget(null)} disabled={isPending}>
-                  Anulează
-                </Button>
-                <Button type="button" onClick={handleRename} disabled={isPending} className="bg-blue-600 text-white hover:bg-blue-500">
-                  {isPending ? "Se salvează..." : "Salvează"}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </ModalPortal>
-      ) : null}
-
-      {/* Rules modal */}
-      {rulesTarget ? (
-        <ModalPortal>
-          <div className={overlayClass}>
-            <button type="button" aria-label="Închide" className={scrimClass} onClick={() => !isPending && setRulesTarget(null)} />
-            <div className="relative z-10 w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-800 dark:bg-slate-950">
-              <div className="flex items-start justify-between">
-                <div>
-                  <h4 className="text-lg font-semibold text-slate-900 dark:text-white">Reguli simulare</h4>
-                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                    {rulesTarget.nume_examen} · {rulesTarget.questionCount} întrebări
-                  </p>
-                </div>
-                <Settings2 className="size-5 text-blue-500" />
-              </div>
 
               <div className="mt-4 grid grid-cols-2 gap-3">
                 <label className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -956,9 +891,14 @@ export function MyExamsManager({
                   <input
                     type="number"
                     min={1}
-                    value={rulesDraft.intrebari_simulare}
-                    onChange={(event) => setRulesDraft((prev) => ({ ...prev, intrebari_simulare: Number(event.target.value) }))}
-                    disabled={isPending}
+                    value={settingsDraft.intrebari_simulare}
+                    onChange={(event) =>
+                      setSettingsDraft((prev) => ({
+                        ...prev,
+                        intrebari_simulare: Number(event.target.value),
+                      }))
+                    }
+                    disabled={isPending || settingsTarget.questionCount === 0}
                     className={`mt-1 ${inputClass}`}
                   />
                 </label>
@@ -967,54 +907,53 @@ export function MyExamsManager({
                   <input
                     type="number"
                     min={1}
-                    value={rulesDraft.durata_minute}
-                    onChange={(event) => setRulesDraft((prev) => ({ ...prev, durata_minute: Number(event.target.value) }))}
-                    disabled={isPending}
+                    value={settingsDraft.durata_minute}
+                    onChange={(event) =>
+                      setSettingsDraft((prev) => ({
+                        ...prev,
+                        durata_minute: Number(event.target.value),
+                      }))
+                    }
+                    disabled={isPending || settingsTarget.questionCount === 0}
                     className={`mt-1 ${inputClass}`}
                   />
                 </label>
-                <label className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                <label className="col-span-2 text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
                   Prag trecere
                   <input
                     type="number"
                     min={1}
-                    value={rulesDraft.prag_trecere}
-                    onChange={(event) => setRulesDraft((prev) => ({ ...prev, prag_trecere: Number(event.target.value) }))}
-                    disabled={isPending}
-                    className={`mt-1 ${inputClass}`}
-                  />
-                </label>
-                <label className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Variante răspuns (max implicit)
-                  <input
-                    type="number"
-                    min={2}
-                    max={10}
-                    value={rulesDraft.variante_raspuns}
-                    onChange={(event) => setRulesDraft((prev) => ({ ...prev, variante_raspuns: Number(event.target.value) }))}
-                    disabled={isPending}
+                    value={settingsDraft.prag_trecere}
+                    onChange={(event) =>
+                      setSettingsDraft((prev) => ({
+                        ...prev,
+                        prag_trecere: Number(event.target.value),
+                      }))
+                    }
+                    disabled={isPending || settingsTarget.questionCount === 0}
                     className={`mt-1 ${inputClass}`}
                   />
                 </label>
               </div>
-              <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                Notă: &bdquo;Variante răspuns&rdquo; este un maxim implicit. În quiz, fiecare
-                întrebare se afișează exact cu numărul de variante stocat în coloana JSONB{" "}
-                <code>variante</code>.
-              </p>
+              {/* variante_raspuns: deprecat la nivel de UI — coloana rămâne în DB dar nu mai e editabilă. */}
+              {settingsTarget.questionCount === 0 ? (
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                  Importă întâi întrebări pentru a seta regulile de simulare.
+                </p>
+              ) : null}
 
-              {rulesError ? (
+              {settingsError ? (
                 <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400">
-                  {rulesError}
+                  {settingsError}
                 </div>
               ) : null}
 
               <div className="mt-5 flex justify-end gap-2">
-                <Button type="button" variant="secondary" onClick={() => setRulesTarget(null)} disabled={isPending}>
+                <Button type="button" variant="secondary" onClick={() => setSettingsTarget(null)} disabled={isPending}>
                   Anulează
                 </Button>
-                <Button type="button" onClick={handleSaveRules} disabled={isPending} className="bg-blue-600 text-white hover:bg-blue-500">
-                  {isPending ? "Se salvează..." : "Salvează regulile"}
+                <Button type="button" onClick={handleSaveSettings} disabled={isPending} className="bg-blue-600 text-white hover:bg-blue-500">
+                  {isPending ? "Se salvează..." : "Salvează"}
                 </Button>
               </div>
             </div>
