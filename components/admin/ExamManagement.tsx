@@ -385,15 +385,32 @@ export function ExamManagement({
 
   const handleSaveSettings = () => {
     if (!settingsTargetExam) return
+
+    const trimmedName = settingsDraft.nume_examen.trim()
+    if (!trimmedName) {
+      setSettingsError("Numele examenului nu poate fi gol.")
+      return
+    }
+
+    const questionCount = settingsTargetExam.question_count
+    if (settingsDraft.intrebari_simulare < 1 || settingsDraft.prag_trecere < 1) {
+      setSettingsError("Valorile trebuie să fie cel puțin 1.")
+      return
+    }
+    if (settingsDraft.intrebari_simulare > questionCount) {
+      setSettingsError(
+        `Numărul de întrebări din simulare nu poate depăși numărul de întrebări din examen (${questionCount}).`,
+      )
+      return
+    }
+    if (settingsDraft.prag_trecere > settingsDraft.intrebari_simulare) {
+      setSettingsError("Pragul de trecere nu poate depăși numărul de întrebări din simulare.")
+      return
+    }
+
     startSavingRulesTransition(() => {
       void (async () => {
         try {
-          const trimmedName = settingsDraft.nume_examen.trim()
-          if (!trimmedName) {
-            setSettingsError("Numele examenului nu poate fi gol.")
-            return
-          }
-
           if (trimmedName !== settingsTargetExam.nume_examen) {
             const formData = new FormData()
             formData.set("examId", String(settingsTargetExam.id))
@@ -594,6 +611,16 @@ export function ExamManagement({
         </Button>
       </div>
 
+      {toast ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`mt-4 rounded-xl border px-4 py-3 text-sm font-medium shadow-sm transition-all ${toastClasses}`}
+        >
+          {toast.message}
+        </div>
+      ) : null}
+
       {!collapsed && (
         <>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
@@ -753,13 +780,6 @@ export function ExamManagement({
             </div>
           )}
 
-          {toast ? (
-            <div
-              className={`fixed top-6 right-6 z-[200] w-full max-w-sm rounded-xl border px-4 py-3 text-center text-sm font-medium shadow-xl pointer-events-none transition-all duration-300 ${toastClasses}`}
-            >
-              {toast.message}
-            </div>
-          ) : null}
         </>
       )}
 
