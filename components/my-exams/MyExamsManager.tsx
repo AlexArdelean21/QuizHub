@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import {
   AlignLeft,
+  ClipboardList,
   FileJson,
   FilePlus2,
   FileSpreadsheet,
@@ -34,6 +35,7 @@ import {
   type PersonalExamRulesPayload,
   type PreviewResult,
 } from "@/app/my-exams/actions"
+import { PersonalQuestionEditorModal } from "@/components/my-exams/PersonalQuestionEditorModal"
 
 export type PersonalExamItem = {
   id: number
@@ -108,6 +110,8 @@ export function MyExamsManager({
     durata_minute: 30,
   })
   const [rulesError, setRulesError] = useState<string | null>(null)
+
+  const [questionEditorTarget, setQuestionEditorTarget] = useState<PersonalExamItem | null>(null)
 
   const [deleteTarget, setDeleteTarget] = useState<PersonalExamItem | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState("")
@@ -673,6 +677,27 @@ export function MyExamsManager({
                           <Settings2 className="size-3.5" /> Reguli
                         </button>
                       )}
+                      {exam.questionCount === 0 ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="inline-block">
+                              <button type="button" disabled className={`${rowActionBtn} pointer-events-none opacity-50`}>
+                                <ClipboardList className="size-3.5" /> Întrebări
+                              </button>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>Importă întâi întrebări.</TooltipContent>
+                        </Tooltip>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setQuestionEditorTarget(exam)}
+                          disabled={isPending}
+                          className={rowActionBtn}
+                        >
+                          <ClipboardList className="size-3.5" /> Întrebări
+                        </button>
+                      )}
                       <button type="button" onClick={() => openImport(exam)} disabled={isPending} className={rowActionBtn} aria-label="Adaugă întrebări">
                         <Upload className="size-3.5" /> Adaugă întrebări
                       </button>
@@ -732,6 +757,27 @@ export function MyExamsManager({
                 ) : (
                   <button type="button" onClick={() => openRules(exam)} disabled={isPending} className={rowActionBtn}>
                     <Settings2 className="size-3" /> Reguli
+                  </button>
+                )}
+                {exam.questionCount === 0 ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-block">
+                        <button type="button" disabled className={`${rowActionBtn} pointer-events-none opacity-50`}>
+                          <ClipboardList className="size-3" /> Întrebări
+                        </button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>Importă întâi întrebări.</TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setQuestionEditorTarget(exam)}
+                    disabled={isPending}
+                    className={rowActionBtn}
+                  >
+                    <ClipboardList className="size-3" /> Întrebări
                   </button>
                 )}
                 <button type="button" onClick={() => openImport(exam)} disabled={isPending} className={rowActionBtn} aria-label="Adaugă întrebări">
@@ -974,6 +1020,15 @@ export function MyExamsManager({
             </div>
           </div>
         </ModalPortal>
+      ) : null}
+
+      {questionEditorTarget ? (
+        <PersonalQuestionEditorModal
+          examId={questionEditorTarget.id}
+          examName={questionEditorTarget.nume_examen}
+          onClose={() => setQuestionEditorTarget(null)}
+          onRefresh={() => router.refresh()}
+        />
       ) : null}
 
       {/* Delete modal */}

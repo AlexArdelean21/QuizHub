@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import { createSupabaseAdminClient } from "@/lib/supabase/admin"
-import { MAX_QUIZ_VARIANTS, MIN_QUIZ_VARIANTS } from "@/lib/quiz/types"
+import { MAX_QUIZ_VARIANTS, MIN_QUIZ_VARIANTS, OPTION_IDS } from "@/lib/quiz/types"
 import {
   parseExamJson,
   type ParsedExamQuestion,
@@ -51,6 +51,27 @@ export type PreviewResult = {
   rows: PreviewRow[]
   summary: PreviewSummary
   skippedRows: number
+}
+
+/**
+ * Row shape consumed by the personal question editor. Mirrors admin's
+ * AdminQuestionRow field-for-field, but defined locally so the personal flow
+ * never imports from app/admin/actions.ts.
+ */
+export type PersonalQuestionRow = {
+  id: number
+  intrebare_text: string
+  variante: string[]
+  raspunsuri_corecte: string[]
+  image_url: string | null
+}
+
+export type UpdatePersonalQuestionPayload = {
+  intrebare_text: string
+  variante: string[]
+  raspunsuri_corecte: string[]
+  /** undefined = nu schimba, null = șterge imaginea, string = noua imagine. */
+  image_url?: string | null
 }
 
 type DedupRpcRow = {
@@ -103,6 +124,121 @@ async function assertPersonalExamOwner(examId: number): Promise<{
   }
 
   return { userId: user.id, admin }
+}
+
+/**
+ * Ownership gate for a single question. Resolves the question's exam and reuses
+ * the personal-exam ownership rule (org_id IS NULL + creator_user_id = user).
+ * Used by every per-question write. Never trusts a client-supplied user id.
+ */
+async function assertOwnsQuestion(questionId: number): Promise<{
+  userId: string
+  admin: AdminClient
+  examenId: number
+}> {
+  if (!Number.isFinite(questionId) || questionId <= 0) {
+    throw new Error("ID-ul întrebării este invalid.")
+  }
+
+  const supabase = await createSupabaseServerClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) throw new Error(NOT_AUTHENTICATED)
+
+  const admin = createSupabaseAdminClient()
+
+  const { data: question, error: questionError } = await admin
+    .from("intrebari")
+    .select("examen_id")
+    .eq("id", questionId)
+    .maybeSingle()
+  if (questionError) throw new Error(questionError.message)
+  if (!question) throw new Error("Întrebarea nu există.")
+
+  const examenId = Number(question.examen_id)
+  const { data: exam, error: examError } = await admin
+    .from("examene")
+    .select("id, org_id, creator_user_id")
+    .eq("id", examenId)
+    .maybeSingle()
+  if (examError) throw new Error(examError.message)
+
+  // Same message for missing and unauthorized so we never disclose that a
+  // question in someone else's exam exists.
+  if (!exam || exam.org_id != null || String(exam.creator_user_id) !== user.id) {
+    throw new Error("Nu ai acces la această întrebare.")
+  }
+
+  return { userId: user.id, admin, examenId }
+}
+
+/**
+ * `variante` normalizer copied from admin (never imported from admin/actions).
+ * Falls back to the legacy varianta_a/b/c columns when the JSONB array is
+ * missing or unusable.
+ */
+function normalizeStoredVariante(
+  raw: unknown,
+  fallbackLegacy: { a?: string | null; b?: string | null; c?: string | null }
+): string[] {
+  let parsed: unknown = raw
+  if (typeof parsed === "string") {
+    const trimmed = parsed.trim()
+    if (trimmed.startsWith("[")) {
+      try {
+        parsed = JSON.parse(trimmed)
+      } catch {
+        parsed = null
+      }
+    } else {
+      parsed = null
+    }
+  }
+  if (Array.isArray(parsed)) {
+    const cleaned = parsed
+      .map((item) => String(item ?? "").trim())
+      .filter((item) => item.length > 0)
+      .slice(0, MAX_QUIZ_VARIANTS)
+    if (cleaned.length >= MIN_QUIZ_VARIANTS) return cleaned
+  }
+  const legacy = [fallbackLegacy.a, fallbackLegacy.b, fallbackLegacy.c]
+    .map((value) => String(value ?? "").trim())
+    .filter((value) => value.length > 0)
+  return legacy
+}
+
+/** Correct-labels normalizer copied from admin (never imported from admin). */
+function normalizeStoredCorrectLabels(
+  raw: unknown,
+  legacy: string | null | undefined,
+  allowedIds: Set<string>
+): string[] {
+  let parsed: unknown = raw
+  if (typeof parsed === "string") {
+    const trimmed = parsed.trim()
+    if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+      try {
+        parsed = JSON.parse(trimmed)
+      } catch {
+        parsed = null
+      }
+    } else {
+      parsed = null
+    }
+  }
+  const out = new Set<string>()
+  if (Array.isArray(parsed)) {
+    for (const value of parsed) {
+      const id = String(value ?? "").trim().toLowerCase()
+      if (allowedIds.has(id)) out.add(id)
+    }
+  }
+  if (out.size === 0) {
+    const legacyId = String(legacy ?? "").trim().toLowerCase()
+    if (allowedIds.has(legacyId)) out.add(legacyId)
+  }
+  return Array.from(out).sort()
 }
 
 /**
@@ -507,4 +643,118 @@ export async function importPersonalExamFromExcel(
   } catch (error) {
     return { success: false, error: toActionError(error) }
   }
+}
+
+export async function getPersonalExamQuestions(
+  examId: number
+): Promise<PersonalQuestionRow[]> {
+  const { admin } = await assertPersonalExamOwner(examId)
+
+  const { data, error } = await admin
+    .from("intrebari")
+    .select(
+      "id, intrebare_text, variante, raspunsuri_corecte, varianta_a, varianta_b, varianta_c, raspuns_corect, image_url"
+    )
+    .eq("examen_id", examId)
+    .order("id", { ascending: true })
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return (data ?? [])
+    .map((row) => {
+      const variante = normalizeStoredVariante(row.variante, {
+        a: row.varianta_a as string | null | undefined,
+        b: row.varianta_b as string | null | undefined,
+        c: row.varianta_c as string | null | undefined,
+      })
+      if (variante.length < MIN_QUIZ_VARIANTS) return null
+      const allowedIds = new Set<string>(OPTION_IDS.slice(0, variante.length))
+      const raspunsuri_corecte = normalizeStoredCorrectLabels(
+        row.raspunsuri_corecte,
+        row.raspuns_corect as string | null | undefined,
+        allowedIds
+      )
+      if (raspunsuri_corecte.length === 0) return null
+      return {
+        id: Number(row.id),
+        intrebare_text: String(row.intrebare_text ?? ""),
+        variante,
+        raspunsuri_corecte,
+        image_url: row.image_url ? String(row.image_url) : null,
+      }
+    })
+    .filter((row): row is PersonalQuestionRow => row !== null)
+}
+
+export async function updatePersonalQuestion(
+  questionId: number,
+  data: UpdatePersonalQuestionPayload
+): Promise<void> {
+  const { admin } = await assertOwnsQuestion(questionId)
+
+  const intrebareText = String(data.intrebare_text ?? "").trim()
+  const variante = Array.isArray(data.variante)
+    ? data.variante
+        .map((value) => String(value ?? "").trim())
+        .filter((value) => value.length > 0)
+        .slice(0, MAX_QUIZ_VARIANTS)
+    : []
+
+  const hasImage =
+    typeof data.image_url === "string" && data.image_url.trim().length > 0
+  if ((!intrebareText && !hasImage) || variante.length < MIN_QUIZ_VARIANTS) {
+    throw new Error("Întrebarea trebuie să aibă text sau imagine și minim 2 variante completate.")
+  }
+
+  const allowedIds = new Set<string>(OPTION_IDS.slice(0, variante.length))
+  const raspunsuri: string[] = []
+  if (Array.isArray(data.raspunsuri_corecte)) {
+    for (const value of data.raspunsuri_corecte) {
+      const id = String(value ?? "").trim().toLowerCase()
+      if (allowedIds.has(id) && !raspunsuri.includes(id)) raspunsuri.push(id)
+    }
+  }
+  raspunsuri.sort()
+
+  if (raspunsuri.length === 0) {
+    throw new Error("Selectează cel puțin un răspuns corect.")
+  }
+
+  const update: Record<string, unknown> = {
+    intrebare_text: intrebareText,
+    variante,
+    raspunsuri_corecte: raspunsuri,
+    varianta_a: variante[0] ?? "",
+    varianta_b: variante[1] ?? "",
+    varianta_c: variante[2] ?? "",
+    raspuns_corect: raspunsuri[0],
+  }
+
+  if (data.image_url !== undefined) {
+    update.image_url = data.image_url
+  }
+
+  const { error } = await admin.from("intrebari").update(update).eq("id", questionId)
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  revalidatePath("/my-exams")
+  revalidatePath("/")
+}
+
+export async function deletePersonalQuestion(questionId: number): Promise<void> {
+  const { admin, examenId } = await assertOwnsQuestion(questionId)
+
+  const { error } = await admin.from("intrebari").delete().eq("id", questionId)
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  await adjustRulesToPool(admin, examenId)
+
+  revalidatePath("/my-exams")
+  revalidatePath("/")
 }
