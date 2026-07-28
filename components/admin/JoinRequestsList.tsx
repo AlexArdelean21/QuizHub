@@ -117,6 +117,13 @@ export function JoinRequestsList({ requests }: Props) {
               </div>
             </div>
 
+            {req.message ? (
+              <p className="whitespace-pre-wrap break-words rounded-md bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+                <span className="mr-1.5 font-medium text-foreground">Mesaj:</span>
+                {req.message}
+              </p>
+            ) : null}
+
             {error ? (
               <p className="rounded-md bg-rose-500/10 px-3 py-2 text-sm text-rose-600 dark:text-rose-400">
                 {error}

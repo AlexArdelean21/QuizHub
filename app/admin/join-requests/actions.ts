@@ -10,6 +10,7 @@ export type PendingJoinRequest = {
   user_id: string
   nume: string | null
   email: string | null
+  message: string | null
   requested_at: string
 }
 
@@ -40,6 +41,7 @@ export async function listPendingJoinRequests(
       user_id: string
       nume: string | null
       email: string | null
+      message: string | null
       requested_at: string
     }[]
   ).map((row) => ({
@@ -47,6 +49,7 @@ export async function listPendingJoinRequests(
     user_id: String(row.user_id),
     nume: row.nume ? String(row.nume) : null,
     email: row.email ? String(row.email) : null,
+    message: row.message ? String(row.message) : null,
     requested_at: String(row.requested_at),
   }))
 
