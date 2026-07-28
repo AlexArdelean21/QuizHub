@@ -6,11 +6,11 @@ import {
   deletePersonalQuestion,
   getPersonalExamQuestions,
   updatePersonalQuestion,
+  uploadPersonalQuestionImage,
   type PersonalQuestionRow,
 } from "@/app/my-exams/actions"
 import { Button } from "@/components/ui/button"
 import { ModalPortal } from "@/components/ui/modal-portal"
-import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import {
   MAX_QUIZ_VARIANTS,
   MIN_QUIZ_VARIANTS,
@@ -216,30 +216,27 @@ export function PersonalQuestionEditorModal({
           let imageUrlToSave: string | null = imagePreview
           if (imageFile) {
             setImageUploading(true)
-            const supabase = getSupabaseBrowserClient()
-            const ext = imageFile.name.split(".").pop() ?? "jpg"
-            const path = `${examId}/${questionId}/${Date.now()}.${ext}`
-            const { error: uploadError } = await supabase.storage
-              .from("question-images")
-              .upload(path, imageFile, { upsert: true })
-            if (uploadError) {
-              setImageUploading(false)
-              setError(`Nu s-a putut încărca imaginea: ${uploadError.message}`)
+            const uploadFormData = new FormData()
+            uploadFormData.set("file", imageFile)
+            const uploadResult = await uploadPersonalQuestionImage(questionId, uploadFormData)
+            setImageUploading(false)
+            if (!uploadResult.success) {
+              setError(uploadResult.error)
               return
             }
-            const { data: urlData } = supabase.storage
-              .from("question-images")
-              .getPublicUrl(path)
-            imageUrlToSave = urlData.publicUrl
-            setImageUploading(false)
+            imageUrlToSave = uploadResult.url
           }
 
-          await updatePersonalQuestion(questionId, {
+          const updateResult = await updatePersonalQuestion(questionId, {
             intrebare_text: cleaned.intrebare_text,
             variante: trimmedVariants,
             raspunsuri_corecte: cleaned.raspunsuri_corecte,
             image_url: imageUrlToSave,
           })
+          if (!updateResult.success) {
+            setError(updateResult.error)
+            return
+          }
 
           setQuestions((current) =>
             current.map((question) =>
@@ -270,19 +267,19 @@ export function PersonalQuestionEditorModal({
 
     setDeletingId(questionId)
     void (async () => {
-      try {
-        setError(null)
-        await deletePersonalQuestion(questionId)
-        setQuestions((current) => current.filter((question) => question.id !== questionId))
-        if (editingId === questionId) {
-          cancelEdit()
-        }
-        onRefresh()
-      } catch (deleteError) {
-        setError(deleteError instanceof Error ? deleteError.message : "Nu s-a putut șterge întrebarea.")
-      } finally {
+      setError(null)
+      const deleteResult = await deletePersonalQuestion(questionId)
+      if (!deleteResult.success) {
+        setError(deleteResult.error)
         setDeletingId(null)
+        return
       }
+      setQuestions((current) => current.filter((question) => question.id !== questionId))
+      if (editingId === questionId) {
+        cancelEdit()
+      }
+      onRefresh()
+      setDeletingId(null)
     })()
   }
 
@@ -296,8 +293,8 @@ export function PersonalQuestionEditorModal({
         onClick={closeEditor}
       />
 
-      <div className="relative z-10 flex max-h-[88vh] h-auto w-full max-w-6xl flex-col rounded-xl border border-border bg-card shadow-2xl">
-        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+      <div className="relative z-10 flex max-h-[90vh] min-w-0 w-full max-w-6xl flex-col overflow-y-auto rounded-xl border border-border bg-card shadow-2xl">
+        <div className="flex min-w-0 items-center justify-between gap-2 border-b border-border px-5 py-4">
           <div>
             <h4 className="text-lg font-semibold text-foreground">Editor întrebări</h4>
             <p className="text-sm text-muted-foreground">
@@ -315,7 +312,7 @@ export function PersonalQuestionEditorModal({
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
             placeholder="Caută după textul întrebării..."
-            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary/70"
+            className="w-full min-w-0 rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary/70"
           />
         </div>
 
@@ -325,7 +322,7 @@ export function PersonalQuestionEditorModal({
           </div>
         ) : null}
 
-        <div className="min-h-0 flex-1 overflow-auto p-5 no-scrollbar">
+        <div className="min-h-0 min-w-0 flex-1 overflow-auto p-5 no-scrollbar">
           {loading ? (
             <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
               <Loader2 className="mr-2 size-4 animate-spin" /> Se încarcă întrebările...
@@ -341,10 +338,10 @@ export function PersonalQuestionEditorModal({
                 return (
                   <div
                     key={question.id}
-                    className="rounded-lg border border-border bg-background/50 p-4 transition-colors hover:bg-background"
+                    className="min-w-0 overflow-hidden rounded-lg border border-border bg-background/50 p-4 transition-colors hover:bg-background"
                   >
-                    <div className="mb-3 flex items-center justify-between gap-2">
-                      <p className="text-xs font-medium text-muted-foreground">
+                    <div className="mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2">
+                      <p className="min-w-0 text-xs font-medium text-muted-foreground">
                         Întrebarea #{index + 1} (ID: {question.id})
                         {question.raspunsuri_corecte.length > 1 ? (
                           <span className="ml-2 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
@@ -352,7 +349,7 @@ export function PersonalQuestionEditorModal({
                           </span>
                         ) : null}
                       </p>
-                      <div className="flex items-center gap-2">
+                      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                         {!isEditing ? (
                           <Button
                             type="button"
@@ -400,8 +397,8 @@ export function PersonalQuestionEditorModal({
                       </div>
                     </div>
 
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <label className="block text-xs font-medium text-muted-foreground md:col-span-2">
+                    <div className="grid min-w-0 gap-3 md:grid-cols-2">
+                      <label className="block min-w-0 text-xs font-medium text-muted-foreground md:col-span-2">
                         Întrebare
                         {isEditing && draft ? (
                           <textarea
@@ -412,27 +409,27 @@ export function PersonalQuestionEditorModal({
                               )
                             }
                             rows={2}
-                            className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+                            className="mt-1 w-full min-w-0 rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
                           />
                         ) : (
-                          <p className="mt-1 rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground">
+                          <p className="mt-1 w-full min-w-0 break-words rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground">
                             {question.intrebare_text}
                           </p>
                         )}
                       </label>
 
                       {isEditing && draft ? (
-                        <div className="mt-1 space-y-2 md:col-span-2">
+                        <div className="mt-1 min-w-0 space-y-2 md:col-span-2">
                           <label className="text-xs font-medium text-muted-foreground">
                             Imagine (opțional)
                           </label>
 
                           {imagePreview && (
-                            <div className="relative w-full overflow-hidden rounded-xl border border-border/60 bg-muted/30">
+                            <div className="relative w-full min-w-0 overflow-hidden rounded-xl border border-border/60 bg-muted/30">
                               <img
                                 src={imagePreview}
                                 alt="Preview imagine"
-                                className="max-h-48 w-full object-contain"
+                                className="max-h-48 max-w-full h-auto w-full object-contain"
                               />
                               <button
                                 type="button"
@@ -460,25 +457,25 @@ export function PersonalQuestionEditorModal({
                             type="file"
                             accept="image/jpeg,image/png,image/webp,image/gif"
                             onChange={handleImageChange}
-                            className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-primary/10 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-primary hover:file:bg-primary/20"
+                            className="block w-full min-w-0 text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-primary/10 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-primary hover:file:bg-primary/20"
                           />
                           <p className="text-xs text-muted-foreground">
                             Max 5MB · JPEG, PNG, WebP · Click pe imagine pentru a o schimba
                           </p>
                         </div>
                       ) : question.image_url ? (
-                        <div className="md:col-span-2">
+                        <div className="min-w-0 md:col-span-2">
                           <img
                             src={question.image_url}
                             alt="Imagine atașată întrebării"
                             loading="lazy"
-                            className="max-h-40 w-full rounded-lg border border-border/60 bg-muted/30 object-contain"
+                            className="max-h-40 max-w-full h-auto w-full rounded-lg border border-border/60 bg-muted/30 object-contain"
                           />
                         </div>
                       ) : null}
 
                       {isEditing && draft ? (
-                        <div className="md:col-span-2">
+                        <div className="min-w-0 md:col-span-2">
                           <p className="mb-2 text-xs font-medium text-muted-foreground">
                             Variante (bifează căsuța din dreapta pentru fiecare răspuns corect)
                           </p>
@@ -489,7 +486,7 @@ export function PersonalQuestionEditorModal({
                               return (
                                 <div
                                   key={`variant-${variantIndex}`}
-                                  className="flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1.5"
+                                  className="flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-border bg-card px-2 py-1.5"
                                 >
                                   <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-secondary text-xs font-semibold text-foreground">
                                     {OPTION_LABELS[variantIndex]}

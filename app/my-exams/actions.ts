@@ -682,70 +682,127 @@ export async function getPersonalExamQuestions(
 export async function updatePersonalQuestion(
   questionId: number,
   data: UpdatePersonalQuestionPayload
-): Promise<void> {
-  const { admin } = await assertOwnsQuestion(questionId)
+): Promise<ActionResult> {
+  try {
+    const { admin } = await assertOwnsQuestion(questionId)
 
-  const intrebareText = String(data.intrebare_text ?? "").trim()
-  const variante = Array.isArray(data.variante)
-    ? data.variante
-        .map((value) => String(value ?? "").trim())
-        .filter((value) => value.length > 0)
-        .slice(0, MAX_QUIZ_VARIANTS)
-    : []
+    const intrebareText = String(data.intrebare_text ?? "").trim()
+    const variante = Array.isArray(data.variante)
+      ? data.variante
+          .map((value) => String(value ?? "").trim())
+          .filter((value) => value.length > 0)
+          .slice(0, MAX_QUIZ_VARIANTS)
+      : []
 
-  const hasImage =
-    typeof data.image_url === "string" && data.image_url.trim().length > 0
-  if ((!intrebareText && !hasImage) || variante.length < MIN_QUIZ_VARIANTS) {
-    throw new Error("Întrebarea trebuie să aibă text sau imagine și minim 2 variante completate.")
-  }
-
-  const allowedIds = new Set<string>(OPTION_IDS.slice(0, variante.length))
-  const raspunsuri: string[] = []
-  if (Array.isArray(data.raspunsuri_corecte)) {
-    for (const value of data.raspunsuri_corecte) {
-      const id = String(value ?? "").trim().toLowerCase()
-      if (allowedIds.has(id) && !raspunsuri.includes(id)) raspunsuri.push(id)
+    const hasImage =
+      typeof data.image_url === "string" && data.image_url.trim().length > 0
+    if ((!intrebareText && !hasImage) || variante.length < MIN_QUIZ_VARIANTS) {
+      return {
+        success: false,
+        error: "Întrebarea trebuie să aibă text sau imagine și minim 2 variante completate.",
+      }
     }
-  }
-  raspunsuri.sort()
 
-  if (raspunsuri.length === 0) {
-    throw new Error("Selectează cel puțin un răspuns corect.")
-  }
+    const allowedIds = new Set<string>(OPTION_IDS.slice(0, variante.length))
+    const raspunsuri: string[] = []
+    if (Array.isArray(data.raspunsuri_corecte)) {
+      for (const value of data.raspunsuri_corecte) {
+        const id = String(value ?? "").trim().toLowerCase()
+        if (allowedIds.has(id) && !raspunsuri.includes(id)) raspunsuri.push(id)
+      }
+    }
+    raspunsuri.sort()
 
-  const update: Record<string, unknown> = {
-    intrebare_text: intrebareText,
-    variante,
-    raspunsuri_corecte: raspunsuri,
-    varianta_a: variante[0] ?? "",
-    varianta_b: variante[1] ?? "",
-    varianta_c: variante[2] ?? "",
-    raspuns_corect: raspunsuri[0],
-  }
+    if (raspunsuri.length === 0) {
+      return { success: false, error: "Selectează cel puțin un răspuns corect." }
+    }
 
-  if (data.image_url !== undefined) {
-    update.image_url = data.image_url
-  }
+    const update: Record<string, unknown> = {
+      intrebare_text: intrebareText,
+      variante,
+      raspunsuri_corecte: raspunsuri,
+      varianta_a: variante[0] ?? "",
+      varianta_b: variante[1] ?? "",
+      varianta_c: variante[2] ?? "",
+      raspuns_corect: raspunsuri[0],
+    }
 
-  const { error } = await admin.from("intrebari").update(update).eq("id", questionId)
-  if (error) {
-    throw new Error(error.message)
-  }
+    if (data.image_url !== undefined) {
+      update.image_url = data.image_url
+    }
 
-  revalidatePath("/my-exams")
-  revalidatePath("/")
+    const { error } = await admin.from("intrebari").update(update).eq("id", questionId)
+    if (error) {
+      return { success: false, error: error.message }
+    }
+
+    revalidatePath("/my-exams")
+    revalidatePath("/")
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: toActionError(error) }
+  }
 }
 
-export async function deletePersonalQuestion(questionId: number): Promise<void> {
-  const { admin, examenId } = await assertOwnsQuestion(questionId)
+const ACCEPTED_QUESTION_IMAGE_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+])
+const MAX_QUESTION_IMAGE_BYTES = 5 * 1024 * 1024
 
-  const { error } = await admin.from("intrebari").delete().eq("id", questionId)
-  if (error) {
-    throw new Error(error.message)
+export async function uploadPersonalQuestionImage(
+  questionId: number,
+  formData: FormData
+): Promise<{ success: true; url: string } | { success: false; error: string }> {
+  try {
+    const { admin, examenId } = await assertOwnsQuestion(questionId)
+
+    const file = formData.get("file")
+    if (!(file instanceof File)) {
+      return { success: false, error: "Fișierul lipsește." }
+    }
+
+    if (file.size > MAX_QUESTION_IMAGE_BYTES) {
+      return { success: false, error: "Imaginea depășește 5MB." }
+    }
+    if (!ACCEPTED_QUESTION_IMAGE_TYPES.has(file.type)) {
+      return { success: false, error: "Format de imagine neacceptat." }
+    }
+
+    const ext = file.name.split(".").pop() ?? "jpg"
+    const path = `${examenId}/${questionId}/${Date.now()}.${ext}`
+
+    const { error: uploadError } = await admin.storage
+      .from("question-images")
+      .upload(path, file, { upsert: true })
+    if (uploadError) {
+      return { success: false, error: uploadError.message }
+    }
+
+    const { data: urlData } = admin.storage.from("question-images").getPublicUrl(path)
+    return { success: true, url: urlData.publicUrl }
+  } catch (error) {
+    return { success: false, error: toActionError(error) }
   }
+}
 
-  await adjustRulesToPool(admin, examenId)
+export async function deletePersonalQuestion(questionId: number): Promise<ActionResult> {
+  try {
+    const { admin, examenId } = await assertOwnsQuestion(questionId)
 
-  revalidatePath("/my-exams")
-  revalidatePath("/")
+    const { error } = await admin.from("intrebari").delete().eq("id", questionId)
+    if (error) {
+      return { success: false, error: error.message }
+    }
+
+    await adjustRulesToPool(admin, examenId)
+
+    revalidatePath("/my-exams")
+    revalidatePath("/")
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: toActionError(error) }
+  }
 }
