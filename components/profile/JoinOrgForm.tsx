@@ -109,6 +109,7 @@ export function JoinOrgForm({
         <textarea
           id="join-message"
           rows={3}
+          maxLength={500}
           value={message}
           onChange={(event) => setMessage(event.target.value)}
           placeholder="Spune-le cine ești..."
