@@ -1,8 +1,13 @@
 "use client"
 
 import { useMemo, useState, useTransition } from "react"
-import { ShieldCheck, Trash2 } from "lucide-react"
-import { deleteUser, grantExamAccess, updateUserRole } from "@/app/admin/actions"
+import { LogOut, ShieldCheck, Trash2 } from "lucide-react"
+import {
+  kickUserFromOrg,
+  deleteUserAccount,
+  grantExamAccess,
+  updateUserRole,
+} from "@/app/admin/actions"
 import type {
   AdminExamRow,
   AdminOrganizationRow,
@@ -17,7 +22,8 @@ type UserTableRow = {
   orgName: string | null
   isCurrentUser: boolean
   canEditRole: boolean
-  canDelete: boolean
+  canKick: boolean
+  canDeleteAccount: boolean
   isAdminRole: boolean
   userAccess: string[]
 }
@@ -34,7 +40,7 @@ export type UsersTableProps = {
 }
 
 type PendingAction = {
-  type: "grant" | "delete" | "role"
+  type: "grant" | "kick" | "deleteAccount" | "role"
   userId: string
 } | null
 
@@ -73,8 +79,12 @@ export function UsersTable({
   const [selectedExamByUser, setSelectedExamByUser] = useState<Record<string, number>>({})
   const [daysByUser, setDaysByUser] = useState<Record<string, number>>({})
   const [selectedOrg, setSelectedOrg] = useState<string>("")
-  const [deleteUserTarget, setDeleteUserTarget] = useState<{ id: string; email: string | null; nume: string | null } | null>(null)
-  const [deleteUserConfirmInput, setDeleteUserConfirmInput] = useState("")
+  const [deleteAccountTarget, setDeleteAccountTarget] = useState<{
+    id: string
+    email: string | null
+    nume: string | null
+  } | null>(null)
+  const [deleteAccountConfirmInput, setDeleteAccountConfirmInput] = useState("")
 
   const defaultExamId = examene[0]?.id ?? null
   const orgNameById = new Map<string, string>(
@@ -124,24 +134,56 @@ export function UsersTable({
     })
   }
 
-  const handleDeleteUserClick = (userId: string, userEmail: string | null, userName: string | null) => {
+  const handleKickFromOrg = (userId: string, userEmail: string | null) => {
     if (isPending) return
-    setDeleteUserTarget({ id: userId, email: userEmail, nume: userName })
-    setDeleteUserConfirmInput("")
-  }
+    const label = userEmail ?? userId
+    if (
+      !window.confirm(
+        `Scoate utilizatorul ${label} din organizație? Contul și examenele personale rămân active.`
+      )
+    ) {
+      return
+    }
 
-  const handleDeleteUserConfirm = () => {
-    if (!deleteUserTarget) return
-    setPendingAction({ type: "delete", userId: deleteUserTarget.id })
+    setPendingAction({ type: "kick", userId })
     startTransition(() => {
       void (async () => {
         try {
-          await deleteUser(deleteUserTarget.id)
-          setDeleteUserTarget(null)
-          setDeleteUserConfirmInput("")
+          await kickUserFromOrg(userId)
         } catch (error) {
-          console.error("Failed to delete user:", error)
-          window.alert(error instanceof Error ? error.message : "Nu s-a putut șterge utilizatorul.")
+          console.error("Failed to kick user from org:", error)
+          window.alert(
+            error instanceof Error ? error.message : "Nu s-a putut scoate utilizatorul din organizație."
+          )
+        } finally {
+          setPendingAction(null)
+        }
+      })()
+    })
+  }
+
+  const handleDeleteAccountClick = (
+    userId: string,
+    userEmail: string | null,
+    userName: string | null
+  ) => {
+    if (isPending) return
+    setDeleteAccountTarget({ id: userId, email: userEmail, nume: userName })
+    setDeleteAccountConfirmInput("")
+  }
+
+  const handleDeleteAccountConfirm = () => {
+    if (!deleteAccountTarget) return
+    setPendingAction({ type: "deleteAccount", userId: deleteAccountTarget.id })
+    startTransition(() => {
+      void (async () => {
+        try {
+          await deleteUserAccount(deleteAccountTarget.id)
+          setDeleteAccountTarget(null)
+          setDeleteAccountConfirmInput("")
+        } catch (error) {
+          console.error("Failed to delete user account:", error)
+          window.alert(error instanceof Error ? error.message : "Nu s-a putut șterge contul.")
         } finally {
           setPendingAction(null)
         }
@@ -174,18 +216,30 @@ export function UsersTable({
         profile.org_nume ??
         (profile.org_id ? orgNameById.get(profile.org_id) ?? null : null)
       const isOrgAdminPeer = !isSuperAdmin && role === "org_admin"
-      // super_admin: poate edita orice rol în afară de super_admin și el însuși
-      // org_admin: poate edita userii din propria org, dar nu super_admini și nu alți org_admini
       const canEditRole =
         (isSuperAdmin || isOrgAdmin) &&
         !isCurrentUser &&
         role !== "super_admin" &&
         !(isOrgAdmin && role === "org_admin")
-      const canDelete = !isCurrentUser && !isOrgAdminPeer
+      const canKick =
+        !isCurrentUser &&
+        Boolean(profile.org_id) &&
+        role !== "super_admin" &&
+        !isOrgAdminPeer
+      const canDeleteAccount = isSuperAdmin && !isCurrentUser && role !== "super_admin"
       const userAccess = activeAccessByUser[profile.id] ?? []
-      return { profile, orgName, isCurrentUser, canEditRole, canDelete, isAdminRole, userAccess }
+      return {
+        profile,
+        orgName,
+        isCurrentUser,
+        canEditRole,
+        canKick,
+        canDeleteAccount,
+        isAdminRole,
+        userAccess,
+      }
     })
-  }, [displayedProfiles, currentUserId, isSuperAdmin, orgNameById, activeAccessByUser])
+  }, [displayedProfiles, currentUserId, isSuperAdmin, isOrgAdmin, orgNameById, activeAccessByUser])
 
   const columns = useMemo<Column<UserTableRow>[]>(() => {
     const cols: Column<UserTableRow>[] = [
@@ -301,9 +355,9 @@ export function UsersTable({
       {
         key: "actiuni",
         header: "Acțiuni",
-        minWidth: 140,
+        minWidth: 180,
         align: "right",
-        render: ({ profile, canDelete, isAdminRole }) => {
+        render: ({ profile, canKick, canDeleteAccount, isAdminRole }) => {
           const isOrgAdminPeer = !isSuperAdmin && profile.role === "org_admin"
           return (
             <div className="flex flex-wrap items-center justify-end gap-1.5">
@@ -355,31 +409,64 @@ export function UsersTable({
                   </button>
                 </>
               )}
-              <button
-                type="button"
-                onClick={() => handleDeleteUserClick(profile.id, profile.email, profile.nume)}
-                disabled={isPending || !canDelete}
-                title={
-                  isOrgAdminPeer
-                    ? "Doar super admin poate șterge un org admin"
-                    : undefined
-                }
-                className="flex items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-100 disabled:opacity-40 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-400 dark:hover:bg-rose-500/20"
-              >
-                <Trash2 className="size-3" />
-                {pendingAction?.type === "delete" && pendingAction.userId === profile.id
-                  ? "..."
-                  : "Șterge"}
-              </button>
+              {canKick ? (
+                <button
+                  type="button"
+                  onClick={() => handleKickFromOrg(profile.id, profile.email)}
+                  disabled={isPending}
+                  title="Scoate din organizație"
+                  className="flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                >
+                  <LogOut className="size-3" />
+                  {pendingAction?.type === "kick" && pendingAction.userId === profile.id
+                    ? "..."
+                    : "Scoate"}
+                </button>
+              ) : null}
+              {canDeleteAccount ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleDeleteAccountClick(profile.id, profile.email, profile.nume)
+                  }
+                  disabled={isPending}
+                  title="Șterge cont permanent"
+                  className="flex items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-100 disabled:opacity-40 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-400 dark:hover:bg-rose-500/20"
+                >
+                  <Trash2 className="size-3" />
+                  {pendingAction?.type === "deleteAccount" &&
+                  pendingAction.userId === profile.id
+                    ? "..."
+                    : "Șterge cont"}
+                </button>
+              ) : isOrgAdminPeer ? (
+                <span
+                  className="text-[10px] text-slate-400 dark:text-slate-500"
+                  title="Doar super admin poate scoate un org admin"
+                >
+                  —
+                </span>
+              ) : null}
             </div>
           )
         },
       },
     ]
     return cols
-  }, [isSuperAdmin, isPending, pendingAction, handleGrantAccess, handleChangeRole,
-      handleDeleteUserClick, selectedExamByUser, daysByUser, defaultExamId,
-      activeAccessByUser, examene])
+  }, [
+    isSuperAdmin,
+    isPending,
+    pendingAction,
+    handleGrantAccess,
+    handleChangeRole,
+    handleKickFromOrg,
+    handleDeleteAccountClick,
+    selectedExamByUser,
+    daysByUser,
+    defaultExamId,
+    activeAccessByUser,
+    examene,
+  ])
 
   return (
     <div className="space-y-3">
@@ -416,7 +503,7 @@ export function UsersTable({
         emptyState={{ title: "Nu am găsit utilizatori." }}
       />
 
-      {deleteUserTarget ? (
+      {deleteAccountTarget ? (
         <div className="fixed inset-0 z-[95] flex items-center justify-center p-4">
           <button
             type="button"
@@ -424,27 +511,28 @@ export function UsersTable({
             aria-label="Închide confirmarea"
             onClick={() => {
               if (!isPending) {
-                setDeleteUserTarget(null)
-                setDeleteUserConfirmInput("")
+                setDeleteAccountTarget(null)
+                setDeleteAccountConfirmInput("")
               }
             }}
           />
           <div className="relative z-10 w-full max-w-md rounded-2xl border border-rose-500/40 bg-white p-5 shadow-2xl dark:bg-slate-950">
             <h4 className="text-lg font-semibold text-rose-600 dark:text-rose-300">
-              Confirmă ștergerea utilizatorului
+              Confirmă ștergerea contului
             </h4>
             <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">
-              Această acțiune este permanentă și va șterge contul, progresul și toate datele asociate utilizatorului.
+              Această acțiune este permanentă și va șterge contul, progresul și toate datele
+              asociate utilizatorului.
             </p>
             <p className="mt-3 text-sm text-slate-600 dark:text-slate-400">
               Pentru confirmare, tastați exact adresa de email:{" "}
               <span className="font-semibold text-slate-900 dark:text-white">
-                {deleteUserTarget.email ?? deleteUserTarget.id}
+                {deleteAccountTarget.email ?? deleteAccountTarget.id}
               </span>
             </p>
             <input
-              value={deleteUserConfirmInput}
-              onChange={(event) => setDeleteUserConfirmInput(event.target.value)}
+              value={deleteAccountConfirmInput}
+              onChange={(event) => setDeleteAccountConfirmInput(event.target.value)}
               placeholder="Adresa de email"
               className="mt-3 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
               disabled={isPending}
@@ -453,8 +541,8 @@ export function UsersTable({
               <button
                 type="button"
                 onClick={() => {
-                  setDeleteUserTarget(null)
-                  setDeleteUserConfirmInput("")
+                  setDeleteAccountTarget(null)
+                  setDeleteAccountConfirmInput("")
                 }}
                 disabled={isPending}
                 className="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
@@ -463,11 +551,16 @@ export function UsersTable({
               </button>
               <button
                 type="button"
-                onClick={handleDeleteUserConfirm}
-                disabled={deleteUserConfirmInput.trim() !== (deleteUserTarget.email ?? deleteUserTarget.id) || isPending}
+                onClick={handleDeleteAccountConfirm}
+                disabled={
+                  deleteAccountConfirmInput.trim() !==
+                    (deleteAccountTarget.email ?? deleteAccountTarget.id) || isPending
+                }
                 className="inline-flex items-center justify-center rounded-md bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-500 disabled:opacity-50"
               >
-                {isPending && pendingAction?.type === "delete" && pendingAction.userId === deleteUserTarget.id
+                {isPending &&
+                pendingAction?.type === "deleteAccount" &&
+                pendingAction.userId === deleteAccountTarget.id
                   ? "Se șterge..."
                   : "Șterge definitiv"}
               </button>

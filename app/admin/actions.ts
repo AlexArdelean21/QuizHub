@@ -777,41 +777,58 @@ export async function deleteSingleQuestion(id: number) {
   revalidatePath("/admin")
 }
 
-export async function deleteUser(userId: string) {
+export async function kickUserFromOrg(userId: string) {
   const context = await assertAdminActor()
+  const adminSupabase = getAdminServiceClient()
+  const actorSupabase = await createSupabaseServerClient()
+
+  const target = await ensureUserInScope(adminSupabase, context, userId)
+  if (target.id === context.userId) {
+    throw new Error("Nu te poți scoate pe tine însuți.")
+  }
+  if (target.role === "super_admin") {
+    throw new Error("Nu poți scoate un super admin din organizație.")
+  }
+  if (target.role === "org_admin" && !context.isSuperAdmin) {
+    throw new Error("Doar super admin poate scoate un org admin.")
+  }
+
+  const { error } = await actorSupabase.rpc("kick_user_from_org", {
+    p_target_user_id: userId,
+  })
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  revalidatePath("/admin")
+  revalidatePath("/admin/global")
+}
+
+export async function deleteUserAccount(userId: string) {
+  const context = await assertSuperAdminActor()
   const adminSupabase = getAdminServiceClient()
 
   const target = await ensureUserInScope(adminSupabase, context, userId)
   if (target.id === context.userId) {
     throw new Error("Nu te poți șterge pe tine însuți.")
   }
-  if (target.role === "super_admin" && !context.isSuperAdmin) {
-    throw new Error("Doar super admin poate șterge un super admin.")
+
+  const { error: delPersonalErr } = await adminSupabase
+    .from("examene")
+    .delete()
+    .eq("creator_user_id", userId)
+    .is("org_id", null)
+  if (delPersonalErr) {
+    throw new Error(delPersonalErr.message)
   }
-  // Org admins cannot remove their peers — only super_admin can demote/remove org_admins.
-  if (target.role === "org_admin" && !context.isSuperAdmin) {
-    throw new Error("Doar super admin poate șterge un org admin.")
-  }
 
-  const { error: deleteAuthError } = await adminSupabase.auth.admin.deleteUser(userId)
-
-  if (deleteAuthError) {
-    const { error: profileDeleteError } = await adminSupabase
-      .from("profiles")
-      .delete()
-      .eq("id", userId)
-
-    if (profileDeleteError) {
-      throw new Error(deleteAuthError.message)
-    }
-
-    const { error: retryDeleteAuthError } = await adminSupabase.auth.admin.deleteUser(userId)
-    if (retryDeleteAuthError) {
-      throw new Error(retryDeleteAuthError.message)
-    }
+  const { error: authErr } = await adminSupabase.auth.admin.deleteUser(userId)
+  if (authErr) {
+    throw new Error(authErr.message)
   }
 
   revalidatePath("/admin")
+  revalidatePath("/admin/global")
 }
 
 export async function grantExamAccess(
