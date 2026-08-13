@@ -6,7 +6,20 @@ import {
   SUPABASE_COOKIE_BASE,
 } from "@/lib/supabase/cookie-options"
 
-const PUBLIC_PATHS = ["/login", "/signup", "/auth/callback", "/api/auth", "/api/webhooks", "/join", "/docs", "/legal"]
+const PUBLIC_PATHS = [
+  "/login",
+  "/signup",
+  "/auth/callback",
+  "/api/auth",
+  "/api/webhooks",
+  // Signup consent write: called right after signUp(), before email confirmation
+  // creates a session. Self-validates (UUID + 15-min account age). Do NOT widen
+  // to all of /api/legal — accept-pending and pending-consents need a session.
+  "/api/legal/record-signup-consent",
+  "/join",
+  "/docs",
+  "/legal",
+]
 
 // Routes an unauthenticated visitor is allowed to view. Unlike PUBLIC_PATHS,
 // these still go through the Supabase client so a logged-in user's session is
