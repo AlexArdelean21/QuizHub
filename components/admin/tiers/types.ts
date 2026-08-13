@@ -27,6 +27,7 @@ export type OrgTierRow = {
   grandfathered: boolean
   over_limit: boolean
   ai_import_enabled: boolean
+  cod_org_custom_override: boolean
   max_admini: number
   max_useri: number
   max_examene: number

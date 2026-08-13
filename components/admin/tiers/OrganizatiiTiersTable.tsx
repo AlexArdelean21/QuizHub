@@ -10,6 +10,7 @@ import { ModalPortal } from "@/components/ui/modal-portal"
 import { DataTable, type Column } from "@/components/ui/data-table"
 import {
   resetOrgTokens,
+  setOrgCodeOverride,
   updateOrgAiImport,
   updateOrgLimits,
   updateOrgManualMode,
@@ -171,6 +172,29 @@ export function OrganizatiiTiersTable({
       { ...org, ai_import_enabled: enabled },
       `AI Import ${enabled ? "activat" : "dezactivat"} pentru „${org.nume}”.`
     )
+  }
+
+  const handleCodeOverrideToggle = (org: OrgTierRow, enabled: boolean) => {
+    setBusyId(org.id)
+    startTransition(() => {
+      void (async () => {
+        try {
+          await setOrgCodeOverride(org.id, enabled)
+          onUpdate({ ...org, cod_org_custom_override: enabled })
+          onToast(
+            "success",
+            `Override cod org ${enabled ? "activat" : "dezactivat"} pentru „${org.nume}”.`
+          )
+        } catch (error) {
+          onToast(
+            "error",
+            error instanceof Error ? error.message : "Eroare neașteptată."
+          )
+        } finally {
+          setBusyId(null)
+        }
+      })()
+    })
   }
 
   const handleResetTokens = (org: OrgTierRow) => {
@@ -359,6 +383,22 @@ export function OrganizatiiTiersTable({
               checked={org.ai_import_enabled}
               disabled={busyId === org.id}
               onCheckedChange={(checked) => handleAiToggle(org, checked)}
+            />
+          </div>
+        ),
+      },
+      {
+        key: "cod_org_override",
+        header: "Cod org override",
+        minWidth: 120,
+        align: "center",
+        render: (org) => (
+          <div className="flex justify-center">
+            <Switch
+              checked={org.cod_org_custom_override}
+              disabled={busyId === org.id}
+              onCheckedChange={(checked) => handleCodeOverrideToggle(org, checked)}
+              aria-label={`Override cod organizație pentru ${org.nume}`}
             />
           </div>
         ),

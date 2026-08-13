@@ -6,6 +6,8 @@ import Link from "next/link"
 import { Eye, EyeOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
+import { recordSignupConsent } from "@/lib/legal/record-signup-consent"
+import { SignupConsent } from "@/components/signup/SignupConsent"
 
 const TOKEN_REGEX = /^[0-9a-f]{64}$/i
 
@@ -31,6 +33,8 @@ function JoinPageContent() {
   const [confirmPassword, setConfirmPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [acceptedTerms, setAcceptedTerms] = useState(false)
+  const [acceptedPrivacy, setAcceptedPrivacy] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -47,6 +51,10 @@ function JoinPageContent() {
       setErrorMessage("Parola trebuie să aibă cel puțin 6 caractere")
       return
     }
+    if (!acceptedTerms || !acceptedPrivacy) {
+      setErrorMessage("Trebuie să accepți termenii și politica de confidențialitate.")
+      return
+    }
 
     setIsSubmitting(true)
     try {
@@ -54,7 +62,7 @@ function JoinPageContent() {
       const appUrl = window.location.origin
       const redirectTo = `${appUrl}/auth/callback?invite=${token}`
 
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: { emailRedirectTo: redirectTo },
@@ -63,6 +71,10 @@ function JoinPageContent() {
       if (error) {
         setErrorMessage(error.message)
         return
+      }
+
+      if (data.user) {
+        await recordSignupConsent(data.user.id, ["termeni", "confidentialitate"])
       }
 
       setSubmitted(true)
@@ -210,6 +222,15 @@ function JoinPageContent() {
                   </button>
                 </div>
               </div>
+
+              <SignupConsent
+                acceptedTerms={acceptedTerms}
+                acceptedPrivacy={acceptedPrivacy}
+                onTermsChange={setAcceptedTerms}
+                onPrivacyChange={setAcceptedPrivacy}
+                disabled={isSubmitting}
+                idPrefix="join"
+              />
 
               {errorMessage && (
                 <p className="rounded-md bg-rose-500/10 px-3 py-2 text-sm text-rose-600 dark:text-rose-400">

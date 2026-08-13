@@ -1,16 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
+type SignupDocumentType = "termeni" | "confidentialitate";
+
 interface RequestBody {
   userId: string;
+  documents?: unknown;
   userAgent?: string;
 }
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+const ALLOWED_DOCUMENTS = new Set<SignupDocumentType>([
+  "termeni",
+  "confidentialitate",
+]);
+
 /** Maximum age of a user account that qualifies for this route (15 minutes). */
 const MAX_AGE_MS = 15 * 60 * 1000;
+
+function parseDocuments(raw: unknown): SignupDocumentType[] | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const out: SignupDocumentType[] = [];
+  for (const item of raw) {
+    if (typeof item !== "string" || !ALLOWED_DOCUMENTS.has(item as SignupDocumentType)) {
+      return null;
+    }
+    const typed = item as SignupDocumentType;
+    if (!out.includes(typed)) out.push(typed);
+  }
+  return out.length > 0 ? out : null;
+}
 
 export async function POST(req: NextRequest) {
   let body: RequestBody;
@@ -21,9 +42,20 @@ export async function POST(req: NextRequest) {
   }
 
   const { userId, userAgent } = body;
+  const documents = parseDocuments(body.documents);
 
   if (!userId || !UUID_RE.test(userId)) {
     return NextResponse.json({ error: "Invalid userId" }, { status: 400 });
+  }
+
+  if (!documents) {
+    return NextResponse.json(
+      {
+        error:
+          'documents is required and must be a non-empty array of "termeni" | "confidentialitate"',
+      },
+      { status: 400 }
+    );
   }
 
   let admin: ReturnType<typeof createSupabaseAdminClient>;
@@ -53,11 +85,11 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Fetch current versions for termeni + confidentialitate
+  // Fetch current versions only for the document types the user accepted
   const { data: docs, error: docsError } = await admin
     .from("legal_documents")
     .select("type, version")
-    .in("type", ["termeni", "confidentialitate"])
+    .in("type", documents)
     .eq("is_current", true);
 
   if (docsError || !docs?.length) {
@@ -65,7 +97,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Could not fetch document versions" }, { status: 500 });
   }
 
-  // Upsert consent rows (idempotent)
   const rows = docs.map((doc) => ({
     user_id: userId,
     document_type: doc.type,

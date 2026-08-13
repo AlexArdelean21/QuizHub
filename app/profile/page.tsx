@@ -10,7 +10,6 @@ import { ProfileTabs } from "@/components/profile/ProfileTabs"
 import { ProfileAvatar } from "@/components/profile/ProfileAvatar"
 import { NameField } from "@/components/profile/NameField"
 import { EmailField } from "@/components/profile/EmailField"
-import { OrgCodeDisplay } from "@/components/profile/OrgCodeDisplay"
 import { ConsentStatusCard } from "@/components/profile/ConsentStatusCard"
 import { LeaveOrgAdminButton } from "@/components/profile/LeaveOrgAdminButton"
 import { LeaveOrganizationButton } from "@/components/profile/LeaveOrganizationButton"
@@ -44,15 +43,6 @@ function extractOrgName(relation: unknown): string | null {
   return null
 }
 
-function extractOrgCode(relation: unknown): string | null {
-  const record = Array.isArray(relation) ? relation[0] : relation
-  if (record && typeof record === "object" && "cod_org" in record) {
-    const code = (record as { cod_org?: unknown }).cod_org
-    return typeof code === "string" ? code : null
-  }
-  return null
-}
-
 function SectionSkeleton() {
   return <div className="h-24 w-full animate-pulse rounded-lg bg-muted" />
 }
@@ -66,14 +56,13 @@ export default async function ProfilePage() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("nume, role, org_id, max_examene_personale, deletion_requested_at, organizatii(nume, cod_org)")
+    .select("nume, role, org_id, max_examene_personale, deletion_requested_at, organizatii(nume)")
     .eq("id", user.id)
     .maybeSingle()
 
   const role = normalizeRole(profile?.role)
   const orgId = profile?.org_id ? String(profile.org_id) : null
   const orgName = extractOrgName(profile?.organizatii)
-  const orgCode = extractOrgCode(profile?.organizatii)
   const maxPersonal = Number(profile?.max_examene_personale ?? 2)
   const deletionRequestedAt = profile?.deletion_requested_at
     ? String(profile.deletion_requested_at)
@@ -111,9 +100,6 @@ export default async function ProfilePage() {
               <span className="text-sm text-muted-foreground">Nume organizație</span>
               <p className="font-medium text-foreground">{orgName ?? "—"}</p>
             </div>
-            {(role === "org_admin" || role === "super_admin") && orgCode ? (
-              <OrgCodeDisplay code={orgCode} />
-            ) : null}
             {role === "org_admin" ? (
               <Suspense fallback={<SectionSkeleton />}>
                 <OrgAdminActions userId={user.id} orgId={orgId} />

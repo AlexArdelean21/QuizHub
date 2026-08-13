@@ -78,7 +78,7 @@ export function PersonalSignupForm() {
       }
 
       if (data.user) {
-        await recordSignupConsent(data.user.id)
+        await recordSignupConsent(data.user.id, ["termeni", "confidentialitate"])
       }
 
       setSignupDone(true)

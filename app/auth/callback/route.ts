@@ -50,10 +50,28 @@ export async function GET(request: NextRequest) {
   const { error } = await supabase.auth.exchangeCodeForSession(code)
 
   if (error) {
+    // Double-click / prefetch resilience: a prior request may already have
+    // exchanged this code and set a session cookie. If so, treat as success.
+    const {
+      data: { user: existingUser },
+    } = await supabase.auth.getUser()
+    if (existingUser) {
+      console.log(
+        "[auth/callback] exchangeCodeForSession failed but valid session present — redirecting to next",
+        { next, invite: Boolean(invite) }
+      )
+      return NextResponse.redirect(new URL(next, requestUrl.origin))
+    }
+    console.log(
+      "[auth/callback] exchangeCodeForSession failed with no session — auth-code-error",
+      { message: error.message }
+    )
     return NextResponse.redirect(
       new URL("/login?error=auth-code-error", requestUrl.origin)
     )
   }
+
+  console.log("[auth/callback] exchangeCodeForSession succeeded")
 
   // Deferred organization creation (new-org signup): the org name + tier were
   // stored in user metadata at signUp and are consumed now that the email is

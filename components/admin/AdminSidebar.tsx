@@ -13,14 +13,12 @@ import {
   Home,
   Layers,
   LayoutDashboard,
-  Link2,
   LogOut,
   Menu,
   Moon,
   MoreHorizontal,
   Sun,
   User,
-  UserPlus,
   Users,
   X,
 } from "lucide-react"
@@ -73,7 +71,7 @@ type AdminBottomTab = {
 
 // Overflow routes surfaced inside the "Mai mult" sheet. Kept in one place so the
 // active-state check and the sheet links can't drift apart.
-const MORE_ROUTES = ["/admin/join-requests", "/dashboard/admin/invite"] as const
+const MORE_ROUTES = ["/admin/join-requests"] as const
 
 function AdminBottomTabBar({ isSuperAdmin }: { isSuperAdmin: boolean }) {
   const pathname = usePathname()
@@ -163,16 +161,8 @@ function AdminBottomTabBar({ isSuperAdmin }: { isSuperAdmin: boolean }) {
                 onClick={() => setMoreOpen(false)}
                 className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm text-foreground transition hover:bg-muted"
               >
-                <UserPlus size={18} />
-                Cereri aderare
-              </Link>
-              <Link
-                href="/dashboard/admin/invite"
-                onClick={() => setMoreOpen(false)}
-                className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm text-foreground transition hover:bg-muted"
-              >
-                <Link2 size={18} />
-                Invitații
+                <Users size={18} />
+                Invitații și cereri
               </Link>
             </div>
           </div>
@@ -327,15 +317,9 @@ export function AdminLayoutShell({
     },
     {
       href: "/admin/join-requests",
-      label: "Cereri aderare",
-      icon: UserPlus,
+      label: "Invitații și cereri",
+      icon: Users,
       show: role === "super_admin" || role === "org_admin",
-    },
-    {
-      href: "/dashboard/admin/invite",
-      label: "Invitații",
-      icon: Link2,
-      show: !isSuperAdmin,
     },
     {
       href: "/admin/global",

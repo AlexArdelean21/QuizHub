@@ -31,7 +31,7 @@ export default async function TiersPage() {
         `
         id, nume, slug,
         tier_id, subscription_status, is_managed_manually,
-        grandfathered, over_limit, ai_import_enabled,
+        grandfathered, over_limit, ai_import_enabled, cod_org_custom_override,
         max_admini, max_useri, max_examene,
         tokeni_lunari, tokeni_consumati_luna,
         past_due_at, suspended_at, actualizat_la
@@ -43,7 +43,12 @@ export default async function TiersPage() {
   return (
     <TiersPageClient
       initialTiers={(tiers ?? []) as PlanTier[]}
-      initialOrganizatii={(organizatii ?? []) as OrgTierRow[]}
+      initialOrganizatii={(organizatii ?? []).map((row) => ({
+        ...(row as OrgTierRow),
+        cod_org_custom_override: Boolean(
+          (row as { cod_org_custom_override?: boolean | null }).cod_org_custom_override
+        ),
+      }))}
     />
   )
 }

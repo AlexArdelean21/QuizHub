@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation"
-import { Inbox } from "lucide-react"
+import { Inbox, Users } from "lucide-react"
 import { getAdminContext } from "@/lib/auth/admin-context"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import {
@@ -7,17 +7,51 @@ import {
   type PendingJoinRequest,
 } from "@/app/admin/join-requests/actions"
 import { JoinRequestsList } from "@/components/admin/JoinRequestsList"
+import { InviteManagement } from "@/components/admin/InviteManagement"
+import { OrgCodeDisplay } from "@/components/profile/OrgCodeDisplay"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 
 export const dynamic = "force-dynamic"
-export const metadata = { title: "Cereri de aderare — QuizHub" }
+export const metadata = { title: "Invitații și cereri — QuizHub" }
 
-export default async function JoinRequestsPage({
+type OrgPageData = {
+  id: string
+  nume: string
+  cod_org: string | null
+  invite_links_enabled: boolean
+  cod_org_custom_override: boolean
+  tierNume: string | null
+}
+
+function extractTierNume(relation: unknown): string | null {
+  const record = Array.isArray(relation) ? relation[0] : relation
+  if (record && typeof record === "object" && "nume" in record) {
+    const nume = (record as { nume?: unknown }).nume
+    return typeof nume === "string" ? nume : null
+  }
+  return null
+}
+
+function canEditOrgCode(
+  tierNume: string | null,
+  customOverride: boolean
+): boolean {
+  if (customOverride) return true
+  const normalized = (tierNume ?? "").trim().toLowerCase()
+  return normalized === "pro" || normalized === "enterprise"
+}
+
+export default async function MembersInvitesPage({
   searchParams,
 }: {
   searchParams: Promise<{ org?: string }>
 }) {
-  // Same auth gate as /admin/global: getAdminContext returns null for plain
-  // users (and for org_admins without an org), so they never reach the fetch.
   const context = await getAdminContext()
   if (!context) {
     redirect("/")
@@ -28,13 +62,12 @@ export default async function JoinRequestsPage({
     ? "super_admin"
     : "org_admin"
 
-  // org_admin is always scoped to their own org; super_admin picks one via ?org.
   const selectedOrgId = mode === "super_admin" ? (org ?? null) : context.orgId
 
-  // Org picker options (super_admin only). RLS already restricts what they see.
+  const supabase = await createSupabaseServerClient()
+
   let organizations: { id: string; nume: string }[] = []
   if (mode === "super_admin") {
-    const supabase = await createSupabaseServerClient()
     const { data } = await supabase
       .from("organizatii")
       .select("id, nume")
@@ -43,6 +76,28 @@ export default async function JoinRequestsPage({
       id: String(o.id),
       nume: String(o.nume),
     }))
+  }
+
+  let orgData: OrgPageData | null = null
+  if (selectedOrgId) {
+    const { data } = await supabase
+      .from("organizatii")
+      .select(
+        "id, nume, cod_org, invite_links_enabled, cod_org_custom_override, plan_tiers(nume)"
+      )
+      .eq("id", selectedOrgId)
+      .maybeSingle()
+
+    if (data) {
+      orgData = {
+        id: String(data.id),
+        nume: String(data.nume ?? ""),
+        cod_org: data.cod_org ? String(data.cod_org) : null,
+        invite_links_enabled: Boolean(data.invite_links_enabled),
+        cod_org_custom_override: Boolean(data.cod_org_custom_override),
+        tierNume: extractTierNume(data.plan_tiers),
+      }
+    }
   }
 
   let requests: PendingJoinRequest[] = []
@@ -56,16 +111,30 @@ export default async function JoinRequestsPage({
     }
   }
 
+  const showOrgCode =
+    Boolean(orgData?.cod_org) &&
+    (mode === "org_admin" || mode === "super_admin")
+  const editEligible = orgData
+    ? canEditOrgCode(orgData.tierNume, orgData.cod_org_custom_override)
+    : false
+
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-8 sm:px-6 lg:px-8">
       <div className="flex flex-col gap-2">
-        <h1 className="text-2xl font-bold text-foreground md:text-3xl">
-          Cereri de aderare
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Aprobă sau respinge utilizatorii care vor să se alăture{" "}
-          {mode === "super_admin" ? "unei organizații" : "organizației tale"}.
-        </p>
+        <div className="flex items-center gap-3">
+          <div className="flex size-12 items-center justify-center rounded-2xl bg-blue-500/15 text-blue-600 dark:text-blue-300">
+            <Users className="size-6" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-foreground md:text-3xl">
+              Invitații și cereri
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Codul organizației, linkuri de invitație și cereri de aderare —
+              într-un singur loc.
+            </p>
+          </div>
+        </div>
       </div>
 
       {mode === "super_admin" ? (
@@ -95,27 +164,78 @@ export default async function JoinRequestsPage({
         </form>
       ) : null}
 
-      {loadError ? (
-        <p className="rounded-md bg-rose-500/10 px-3 py-2 text-sm text-rose-600 dark:text-rose-400">
-          {loadError}
-        </p>
-      ) : null}
-
-      {selectedOrgId ? (
-        requests.length === 0 && !loadError ? (
-          <div className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-card px-6 py-16 text-center shadow-sm">
-            <Inbox className="size-10 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">
-              Nu există cereri în așteptare.
-            </p>
-          </div>
-        ) : (
-          <JoinRequestsList orgId={selectedOrgId} requests={requests} />
-        )
-      ) : (
+      {!selectedOrgId ? (
         <p className="text-sm text-muted-foreground">
-          Selectează o organizație pentru a vedea cererile în așteptare.
+          Selectează o organizație pentru a gestiona invitațiile și cererile.
         </p>
+      ) : !orgData ? (
+        <p className="rounded-md bg-rose-500/10 px-3 py-2 text-sm text-rose-600 dark:text-rose-400">
+          Organizația nu a fost găsită.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-6">
+          {showOrgCode && orgData.cod_org ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Cod organizație</CardTitle>
+                <CardDescription>
+                  Trimite acest cod membrilor care vor să trimită o cerere de
+                  aderare.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <OrgCodeDisplay
+                  code={orgData.cod_org}
+                  orgId={orgData.id}
+                  canEdit={editEligible}
+                />
+              </CardContent>
+            </Card>
+          ) : null}
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Invitații</CardTitle>
+              <CardDescription>
+                Generează linkuri de invitație pentru a adăuga membri direct în{" "}
+                {orgData.nume || "organizație"}.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <InviteManagement
+                orgId={orgData.id}
+                inviteLinksEnabled={orgData.invite_links_enabled}
+                isSuperAdmin={mode === "super_admin"}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Cereri de aderare</CardTitle>
+              <CardDescription>
+                Aprobă sau respinge utilizatorii care vor să se alăture
+                organizației.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loadError ? (
+                <p className="rounded-md bg-rose-500/10 px-3 py-2 text-sm text-rose-600 dark:text-rose-400">
+                  {loadError}
+                </p>
+              ) : requests.length === 0 ? (
+                <div className="flex flex-col items-center gap-3 rounded-xl border border-border bg-muted/30 px-6 py-12 text-center">
+                  <Inbox className="size-10 text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">
+                    Nu există cereri în așteptare.
+                  </p>
+                </div>
+              ) : (
+                <JoinRequestsList orgId={orgData.id} requests={requests} />
+              )}
+            </CardContent>
+          </Card>
+        </div>
       )}
     </div>
   )

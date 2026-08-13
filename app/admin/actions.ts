@@ -1713,6 +1713,119 @@ export async function toggleOrgInviteLinks(
   if (error) throw new Error(error.message)
 }
 
+const ORG_CODE_REGEX = /^[A-Z0-9_-]{3,12}$/
+const ORG_CODE_FORMAT_ERROR =
+  "Codul trebuie să conțină doar litere mari (A-Z), cifre (0-9), cratimă (-) sau underscore (_), 3-12 caractere."
+const ORG_CODE_TAKEN_ERROR = "Acest cod este deja folosit."
+
+function isPostgresUniqueViolation(error: { code?: string } | null): boolean {
+  return error?.code === "23505"
+}
+
+/**
+ * Updates organizatii.cod_org for Pro/Enterprise orgs (or those with
+ * cod_org_custom_override). org_admin of that org or super_admin only.
+ */
+export async function updateOrgCode(orgId: string, newCode: string): Promise<void> {
+  const context = await assertAdminActor()
+  const id = String(orgId ?? "").trim()
+  if (!id) throw new Error("ID-ul organizației lipsește.")
+
+  if (!context.isSuperAdmin && context.scopedOrgId !== id) {
+    throw new Error("Nu ai dreptul să modifici codul acestei organizații.")
+  }
+
+  const normalized = String(newCode ?? "").trim().toUpperCase()
+  if (!ORG_CODE_REGEX.test(normalized)) {
+    throw new Error(ORG_CODE_FORMAT_ERROR)
+  }
+
+  const adminSupabase = getAdminServiceClient()
+
+  const { data: org, error: orgError } = await adminSupabase
+    .from("organizatii")
+    .select("id, cod_org, cod_org_custom_override, plan_tiers(nume)")
+    .eq("id", id)
+    .maybeSingle()
+
+  if (orgError) throw new Error(orgError.message)
+  if (!org) throw new Error("Organizația nu a fost găsită.")
+
+  const tierRelation = org.plan_tiers as
+    | { nume?: string | null }
+    | { nume?: string | null }[]
+    | null
+  const tierRecord = Array.isArray(tierRelation) ? tierRelation[0] : tierRelation
+  const tierNume = String(tierRecord?.nume ?? "")
+    .trim()
+    .toLowerCase()
+  const eligible =
+    Boolean(org.cod_org_custom_override) ||
+    tierNume === "pro" ||
+    tierNume === "enterprise"
+
+  if (!eligible) {
+    throw new Error(
+      "Doar organizațiile Pro, Enterprise sau cu override pot schimba codul."
+    )
+  }
+
+  if (String(org.cod_org ?? "").toUpperCase() === normalized) {
+    return
+  }
+
+  // Exact match on stored uppercase value. Case-insensitive uniqueness is
+  // enforced by the DB index; 23505 below covers any race / case variant.
+  const { data: conflict, error: conflictError } = await adminSupabase
+    .from("organizatii")
+    .select("id")
+    .neq("id", id)
+    .eq("cod_org", normalized)
+    .maybeSingle()
+
+  if (conflictError) throw new Error(conflictError.message)
+  if (conflict) throw new Error(ORG_CODE_TAKEN_ERROR)
+
+  const { error: updateError } = await adminSupabase
+    .from("organizatii")
+    .update({ cod_org: normalized })
+    .eq("id", id)
+
+  if (updateError) {
+    if (isPostgresUniqueViolation(updateError)) {
+      throw new Error(ORG_CODE_TAKEN_ERROR)
+    }
+    throw new Error(updateError.message)
+  }
+
+  revalidatePath("/admin/join-requests")
+  revalidatePath("/admin/tiers")
+  revalidatePath("/profile")
+}
+
+/** Super-admin only: allow any org to customize cod_org regardless of tier. */
+export async function setOrgCodeOverride(
+  orgId: string,
+  enabled: boolean
+): Promise<void> {
+  const context = await assertAdminActor()
+  if (!context.isSuperAdmin) {
+    throw new Error("Doar super admin poate modifica această setare.")
+  }
+  const id = String(orgId ?? "").trim()
+  if (!id) throw new Error("ID-ul organizației lipsește.")
+
+  const adminSupabase = getAdminServiceClient()
+  const { error } = await adminSupabase
+    .from("organizatii")
+    .update({ cod_org_custom_override: Boolean(enabled) })
+    .eq("id", id)
+  if (error) throw new Error(error.message)
+
+  revalidatePath("/admin/tiers")
+  revalidatePath("/admin/join-requests")
+}
+
 export async function getMyShareStatsEnabled(): Promise<boolean> {
   const actorSupabase = await createSupabaseServerClient()
   const { data, error } = await actorSupabase.rpc("get_my_share_stats")
