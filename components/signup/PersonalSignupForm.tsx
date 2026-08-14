@@ -5,7 +5,7 @@ import Link from "next/link"
 import { Eye, EyeOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
-import { recordSignupConsent } from "@/lib/legal/record-signup-consent"
+import { PENDING_CONSENT_DOCS_KEY } from "@/lib/signup/types"
 import { SignupConsent } from "@/components/signup/SignupConsent"
 import { ExistingEmailNotice } from "@/components/signup/ExistingEmailNotice"
 import { cn } from "@/lib/utils"
@@ -57,7 +57,12 @@ export function PersonalSignupForm() {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: { emailRedirectTo: redirectTo },
+        options: {
+          emailRedirectTo: redirectTo,
+          data: {
+            [PENDING_CONSENT_DOCS_KEY]: ["termeni", "confidentialitate"],
+          },
+        },
       })
 
       if (error) {
@@ -75,10 +80,6 @@ export function PersonalSignupForm() {
       if (isExistingUser) {
         setExistingEmail(true)
         return
-      }
-
-      if (data.user) {
-        await recordSignupConsent(data.user.id, ["termeni", "confidentialitate"])
       }
 
       setSignupDone(true)

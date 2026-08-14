@@ -6,7 +6,7 @@ import Link from "next/link"
 import { Eye, EyeOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
-import { recordSignupConsent } from "@/lib/legal/record-signup-consent"
+import { PENDING_CONSENT_DOCS_KEY } from "@/lib/signup/types"
 import { SignupConsent } from "@/components/signup/SignupConsent"
 
 const TOKEN_REGEX = /^[0-9a-f]{64}$/i
@@ -65,16 +65,17 @@ function JoinPageContent() {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: { emailRedirectTo: redirectTo },
+        options: {
+          emailRedirectTo: redirectTo,
+          data: {
+            [PENDING_CONSENT_DOCS_KEY]: ["termeni", "confidentialitate"],
+          },
+        },
       })
 
       if (error) {
         setErrorMessage(error.message)
         return
-      }
-
-      if (data.user) {
-        await recordSignupConsent(data.user.id, ["termeni", "confidentialitate"])
       }
 
       setSubmitted(true)

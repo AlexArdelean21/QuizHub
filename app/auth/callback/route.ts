@@ -2,13 +2,27 @@ import { NextResponse, type NextRequest } from "next/server"
 import { createServerClient } from "@supabase/ssr"
 import { SUPABASE_COOKIE_OPTIONS } from "@/lib/supabase/cookie-options"
 import { consumeInviteToken } from "@/lib/auth/invite-token"
+import { recordSignupConsentServer } from "@/lib/legal/record-signup-consent-server"
 import { createOrgOnSignup } from "@/lib/signup/create-org"
-import { PENDING_ORG_NUME_KEY, PENDING_ORG_TIER_KEY } from "@/lib/signup/types"
+import {
+  PENDING_CONSENT_DOCS_KEY,
+  PENDING_ORG_NUME_KEY,
+  PENDING_ORG_TIER_KEY,
+} from "@/lib/signup/types"
+
+function sanitizeNext(next: string): string {
+  // Only allow same-origin relative paths — reject absolute and
+  // protocol-relative URLs to prevent open redirects.
+  if (!next.startsWith("/") || next.startsWith("//")) {
+    return "/"
+  }
+  return next
+}
 
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get("code")
-  const next = requestUrl.searchParams.get("next") ?? "/"
+  const next = sanitizeNext(requestUrl.searchParams.get("next") ?? "/")
   const invite = requestUrl.searchParams.get("invite")
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -73,58 +87,68 @@ export async function GET(request: NextRequest) {
 
   console.log("[auth/callback] exchangeCodeForSession succeeded")
 
-  // Deferred organization creation (new-org signup): the org name + tier were
-  // stored in user metadata at signUp and are consumed now that the email is
-  // confirmed and an authenticated session exists.
-  {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    const meta = (user?.user_metadata ?? {}) as Record<string, unknown>
-    const rawNume = meta[PENDING_ORG_NUME_KEY]
-    const rawTier = meta[PENDING_ORG_TIER_KEY]
-    const pendingNume = typeof rawNume === "string" ? rawNume.trim() : ""
-    const pendingTier =
-      typeof rawTier === "number" ? rawTier : Number(rawTier)
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  const meta = (user?.user_metadata ?? {}) as Record<string, unknown>
 
-    if (
-      user?.id &&
-      pendingNume &&
-      Number.isInteger(pendingTier) &&
-      pendingTier > 0
-    ) {
-      const result = await createOrgOnSignup(supabase, {
-        userId: user.id,
-        orgName: pendingNume,
-        tierId: pendingTier,
-      })
-
-      // Clear the pending intent so it can never be re-applied on a later visit.
-      await supabase.auth.updateUser({
-        data: {
-          [PENDING_ORG_NUME_KEY]: null,
-          [PENDING_ORG_TIER_KEY]: null,
-        },
-      })
-
-      // The admin dashboard lives at /admin (getAdminContext admits org_admin);
-      // /dashboard/admin has only a layout and no index page, so it 404s.
-      const target = result.success
-        ? "/admin"
-        : `/?org_error=${encodeURIComponent(result.error)}`
-
-      const orgResponse = NextResponse.redirect(new URL(target, requestUrl.origin))
-      response.cookies.getAll().forEach((cookie) => {
-        orgResponse.cookies.set(cookie)
-      })
-      return orgResponse
+  // Pending consent docs from signUp metadata — written once the session exists.
+  if (user?.id) {
+    const rawConsentDocs = meta[PENDING_CONSENT_DOCS_KEY]
+    const consentDocs = Array.isArray(rawConsentDocs)
+      ? rawConsentDocs.filter(
+          (d): d is "termeni" | "confidentialitate" =>
+            d === "termeni" || d === "confidentialitate"
+        )
+      : []
+    if (consentDocs.length > 0) {
+      await recordSignupConsentServer(user.id, consentDocs)
+      await supabase.auth.updateUser({ data: { [PENDING_CONSENT_DOCS_KEY]: null } })
     }
   }
 
+  // Deferred organization creation (new-org signup): the org name + tier were
+  // stored in user metadata at signUp and are consumed now that the email is
+  // confirmed and an authenticated session exists.
+  const rawNume = meta[PENDING_ORG_NUME_KEY]
+  const rawTier = meta[PENDING_ORG_TIER_KEY]
+  const pendingNume = typeof rawNume === "string" ? rawNume.trim() : ""
+  const pendingTier = typeof rawTier === "number" ? rawTier : Number(rawTier)
+
+  if (
+    user?.id &&
+    pendingNume &&
+    Number.isInteger(pendingTier) &&
+    pendingTier > 0
+  ) {
+    const result = await createOrgOnSignup(supabase, {
+      userId: user.id,
+      orgName: pendingNume,
+      tierId: pendingTier,
+    })
+
+    // Clear the pending intent so it can never be re-applied on a later visit.
+    await supabase.auth.updateUser({
+      data: {
+        [PENDING_ORG_NUME_KEY]: null,
+        [PENDING_ORG_TIER_KEY]: null,
+      },
+    })
+
+    // The admin dashboard lives at /admin (getAdminContext admits org_admin);
+    // /dashboard/admin has only a layout and no index page, so it 404s.
+    const target = result.success
+      ? "/admin"
+      : `/?org_error=${encodeURIComponent(result.error)}`
+
+    const orgResponse = NextResponse.redirect(new URL(target, requestUrl.origin))
+    response.cookies.getAll().forEach((cookie) => {
+      orgResponse.cookies.set(cookie)
+    })
+    return orgResponse
+  }
+
   if (invite && typeof invite === "string") {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
     console.log("[auth/callback] invite flow started", {
       hasUser: Boolean(user?.id),
       tokenLength: invite.length,

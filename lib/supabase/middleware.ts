@@ -12,10 +12,6 @@ const PUBLIC_PATHS = [
   "/auth/callback",
   "/api/auth",
   "/api/webhooks",
-  // Signup consent write: called right after signUp(), before email confirmation
-  // creates a session. Self-validates (UUID + 15-min account age). Do NOT widen
-  // to all of /api/legal — accept-pending and pending-consents need a session.
-  "/api/legal/record-signup-consent",
   "/join",
   "/docs",
   "/legal",

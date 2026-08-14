@@ -5,10 +5,13 @@ import Link from "next/link"
 import { ChevronLeft, Eye, EyeOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
-import { recordSignupConsent } from "@/lib/legal/record-signup-consent"
 import { SignupConsent } from "@/components/signup/SignupConsent"
 import { ExistingEmailNotice } from "@/components/signup/ExistingEmailNotice"
-import { PENDING_ORG_NUME_KEY, PENDING_ORG_TIER_KEY } from "@/lib/signup/types"
+import {
+  PENDING_CONSENT_DOCS_KEY,
+  PENDING_ORG_NUME_KEY,
+  PENDING_ORG_TIER_KEY,
+} from "@/lib/signup/types"
 import { cn } from "@/lib/utils"
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -81,6 +84,7 @@ export function AccountDetailsStep({
           data: {
             [PENDING_ORG_NUME_KEY]: orgName.trim(),
             [PENDING_ORG_TIER_KEY]: tierId,
+            [PENDING_CONSENT_DOCS_KEY]: ["termeni", "confidentialitate"],
           },
         },
       })
@@ -105,10 +109,6 @@ export function AccountDetailsStep({
       if (isExistingUser) {
         setExistingEmail(true)
         return
-      }
-
-      if (data.user) {
-        await recordSignupConsent(data.user.id, ["termeni", "confidentialitate"])
       }
 
       setSignupDone(true)
