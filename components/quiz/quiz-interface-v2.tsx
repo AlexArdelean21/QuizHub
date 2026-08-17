@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import dynamic from "next/dynamic"
 import { Button } from "@/components/ui/button"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
@@ -57,7 +57,7 @@ function formatElapsed(ms: number) {
   return `${m}m ${s.toString().padStart(2, "0")}s`
 }
 
-export function QuizInterface() {
+export function QuizInterface({ banner }: { banner?: ReactNode }) {
   const supabase = getSupabaseBrowserClient()
   const [status, setStatus] = useState<QuizStatus>("setup")
   const [mode, setMode] = useState<QuizMode>("simulation")
@@ -629,6 +629,9 @@ export function QuizInterface() {
     return (
       <div className="min-h-screen bg-background bg-mesh noise-overlay">
         <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-12 sm:px-6 md:py-16 lg:px-8 lg:py-20">
+          {/* Only on the setup screen — an in-progress quiz must not be pushed
+              around by a dashboard-level notice. */}
+          {banner}
           <div className="card-surface w-full quiz-question-animate">
             <div className="px-6 pt-6 pb-2 md:px-8 md:pt-8">
               <p className="section-label">Setup</p>

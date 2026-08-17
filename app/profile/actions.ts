@@ -74,6 +74,27 @@ export async function requestJoinOrg(
   return { success: true }
 }
 
+export async function cancelJoinRequest(): Promise<ActionResult> {
+  const supabase = await createSupabaseServerClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { success: false, error: NOT_AUTHENTICATED }
+
+  // Takes no arguments: the RPC resolves the caller via auth.uid() internally and
+  // deletes only their own pending row. It returns false (never raises) when
+  // there is nothing to cancel, which we deliberately treat as success — the
+  // user's intent ("I no longer have a pending request") is already satisfied.
+  const { error } = await supabase.rpc("cancel_org_join_request")
+  if (error) return { success: false, error: error.message }
+
+  // "/" too: with no pending request left, the dashboard org banner becomes
+  // eligible to show again.
+  revalidatePath("/profile")
+  revalidatePath("/")
+  return { success: true }
+}
+
 export async function requestAccountDeletion(): Promise<ActionResult> {
   const supabase = await createSupabaseServerClient()
   const {

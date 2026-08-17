@@ -114,6 +114,11 @@ export function BottomTabBar() {
   const handleLogout = async () => {
     closeProfile()
     const supabase = getSupabaseBrowserClient()
+    try {
+      sessionStorage.removeItem("quizhub_org_banner_dismissed")
+    } catch {
+      // Storage can throw in private/blocked-cookie contexts — logout still proceeds.
+    }
     await supabase.auth.signOut()
     window.location.href = "/"
   }

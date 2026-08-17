@@ -4,7 +4,7 @@ import { FormEvent, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { requestJoinOrg } from "@/app/profile/actions"
+import { cancelJoinRequest, requestJoinOrg } from "@/app/profile/actions"
 
 export type JoinRequestStatus = "pending" | "approved" | "rejected"
 
@@ -33,18 +33,43 @@ export function JoinOrgForm({
   const [message, setMessage] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [cancelError, setCancelError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
+  const [isCancelling, startCancelTransition] = useTransition()
+
+  const onCancelRequest = () => {
+    setCancelError(null)
+    startCancelTransition(async () => {
+      const result = await cancelJoinRequest()
+      if (!result.success) {
+        setCancelError(result.error)
+        return
+      }
+      // The server re-render swaps this block back to the join form.
+      router.refresh()
+    })
+  }
 
   // A pending or approved request means no new form. A rejected one may be
   // shown alongside the option to try again.
   if (existingRequest && existingRequest.status !== "rejected") {
     return (
       <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm text-muted-foreground">Cerere de aderare:</span>
           <Badge variant={existingRequest.status === "approved" ? "default" : "secondary"}>
             {STATUS_LABEL[existingRequest.status]}
           </Badge>
+          {existingRequest.status === "pending" ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onCancelRequest}
+              disabled={isCancelling}
+            >
+              {isCancelling ? "Se anulează..." : "Anulează cererea"}
+            </Button>
+          ) : null}
         </div>
         {existingRequest.orgName ? (
           <p className="text-sm text-muted-foreground">
@@ -53,6 +78,11 @@ export function JoinOrgForm({
             {existingRequest.status === "pending"
               ? " va analiza cererea ta în curând."
               : "."}
+          </p>
+        ) : null}
+        {cancelError ? (
+          <p className="rounded-md bg-rose-500/10 px-3 py-2 text-sm text-rose-600 dark:text-rose-400">
+            {cancelError}
           </p>
         ) : null}
       </div>
@@ -96,7 +126,7 @@ export function JoinOrgForm({
           type="text"
           required
           value={codOrg}
-          onChange={(event) => setCodOrg(event.target.value)}
+          onChange={(event) => setCodOrg(event.target.value.toUpperCase())}
           placeholder="Ex: QH-4F82K1"
           className={inputClass}
         />

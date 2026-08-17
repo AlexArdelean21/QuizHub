@@ -3,6 +3,7 @@ import { redirect } from "next/navigation"
 import Link from "next/link"
 import { ChevronLeft } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import { normalizeRole, type AppRole } from "@/lib/auth/roles"
 import { getInitials } from "@/lib/avatar"
@@ -128,6 +129,22 @@ export default async function ProfilePage() {
           <Suspense fallback={<SectionSkeleton />}>
             <JoinOrgCard userId={user.id} />
           </Suspense>
+        </div>
+      ) : null}
+
+      {!orgId ? (
+        <div className="flex flex-col gap-3 border-t border-border pt-6">
+          <div className="flex flex-col gap-1">
+            <h3 className="text-base font-semibold text-foreground">
+              Creează o organizație nouă
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              Vrei să fii admin propriei organizații?
+            </p>
+          </div>
+          <Button asChild variant="outline" className="w-fit">
+            <Link href="/org/creeaza">Creează organizație</Link>
+          </Button>
         </div>
       ) : null}
     </div>
