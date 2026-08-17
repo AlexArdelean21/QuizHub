@@ -3,12 +3,7 @@ import { createServerClient } from "@supabase/ssr"
 import { SUPABASE_COOKIE_OPTIONS } from "@/lib/supabase/cookie-options"
 import { consumeInviteToken } from "@/lib/auth/invite-token"
 import { recordSignupConsentServer } from "@/lib/legal/record-signup-consent-server"
-import { createOrgOnSignup } from "@/lib/signup/create-org"
-import {
-  PENDING_CONSENT_DOCS_KEY,
-  PENDING_ORG_NUME_KEY,
-  PENDING_ORG_TIER_KEY,
-} from "@/lib/signup/types"
+import { PENDING_CONSENT_DOCS_KEY } from "@/lib/signup/types"
 
 function sanitizeNext(next: string): string {
   // Only allow same-origin relative paths — reject absolute and
@@ -105,47 +100,6 @@ export async function GET(request: NextRequest) {
       await recordSignupConsentServer(user.id, consentDocs)
       await supabase.auth.updateUser({ data: { [PENDING_CONSENT_DOCS_KEY]: null } })
     }
-  }
-
-  // Deferred organization creation (new-org signup): the org name + tier were
-  // stored in user metadata at signUp and are consumed now that the email is
-  // confirmed and an authenticated session exists.
-  const rawNume = meta[PENDING_ORG_NUME_KEY]
-  const rawTier = meta[PENDING_ORG_TIER_KEY]
-  const pendingNume = typeof rawNume === "string" ? rawNume.trim() : ""
-  const pendingTier = typeof rawTier === "number" ? rawTier : Number(rawTier)
-
-  if (
-    user?.id &&
-    pendingNume &&
-    Number.isInteger(pendingTier) &&
-    pendingTier > 0
-  ) {
-    const result = await createOrgOnSignup(supabase, {
-      userId: user.id,
-      orgName: pendingNume,
-      tierId: pendingTier,
-    })
-
-    // Clear the pending intent so it can never be re-applied on a later visit.
-    await supabase.auth.updateUser({
-      data: {
-        [PENDING_ORG_NUME_KEY]: null,
-        [PENDING_ORG_TIER_KEY]: null,
-      },
-    })
-
-    // The admin dashboard lives at /admin (getAdminContext admits org_admin);
-    // /dashboard/admin has only a layout and no index page, so it 404s.
-    const target = result.success
-      ? "/admin"
-      : `/?org_error=${encodeURIComponent(result.error)}`
-
-    const orgResponse = NextResponse.redirect(new URL(target, requestUrl.origin))
-    response.cookies.getAll().forEach((cookie) => {
-      orgResponse.cookies.set(cookie)
-    })
-    return orgResponse
   }
 
   if (invite && typeof invite === "string") {

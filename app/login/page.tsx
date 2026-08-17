@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { Eye, EyeOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { GoogleContinuePlaceholder } from "@/components/auth/GoogleContinuePlaceholder"
 import { cn } from "@/lib/utils"
 import { migrateAnonymousCookieConsent } from "@/lib/legal/consent-migration"
 
@@ -30,8 +31,7 @@ function LoginForm() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   useEffect(() => {
-    // The old signup lived at /login?tab=signup — send those visitors to the
-    // new dedicated signup selector.
+    // The old signup lived at /login?tab=signup — send those visitors to /signup.
     if (searchParams.get("tab") === "signup") {
       router.replace("/signup")
     }
@@ -221,6 +221,8 @@ function LoginForm() {
                 )}
               </Button>
             </form>
+
+            <GoogleContinuePlaceholder />
 
             <button
               type="button"

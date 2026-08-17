@@ -8,6 +8,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import { PENDING_CONSENT_DOCS_KEY } from "@/lib/signup/types"
 import { SignupConsent } from "@/components/signup/SignupConsent"
 import { ExistingEmailNotice } from "@/components/signup/ExistingEmailNotice"
+import { GoogleContinuePlaceholder } from "@/components/auth/GoogleContinuePlaceholder"
 import { cn } from "@/lib/utils"
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -226,6 +227,8 @@ export function PersonalSignupForm() {
             {isSubmitting ? "Se procesează..." : "Creare cont"}
           </Button>
         </form>
+
+        <GoogleContinuePlaceholder />
 
         <p className="text-center text-sm text-muted-foreground">
           Ai deja un cont?{" "}
