@@ -14,6 +14,7 @@ interface PendingDoc {
 
 interface PendingConsentsResponse {
   pending: PendingDoc[];
+  isFirstConsent?: boolean;
 }
 
 const DOCUMENT_LABELS: Record<LegalSlug, { label: string; href: string }> = {
@@ -27,6 +28,7 @@ const DOCUMENT_LABELS: Record<LegalSlug, { label: string; href: string }> = {
 
 export function ReConsentModal() {
   const [pending, setPending] = useState<PendingDoc[]>([]);
+  const [isFirstConsent, setIsFirstConsent] = useState(false);
   const [checked, setChecked] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [checkComplete, setCheckComplete] = useState(false);
@@ -42,6 +44,7 @@ export function ReConsentModal() {
         const data = (await res.json()) as PendingConsentsResponse;
         if (!cancelledRef.current) {
           setPending(data.pending ?? []);
+          setIsFirstConsent(data.isFirstConsent === true);
         }
       } catch (err) {
         // Degradare grațioasă: dacă verificarea eșuează nu blocăm userul.
@@ -111,13 +114,15 @@ export function ReConsentModal() {
             id="reconsent-title"
             className="mb-2 text-lg font-semibold text-foreground"
           >
-            Actualizare documente legale
+            {isFirstConsent
+              ? "Bine ai venit pe QuizHub!"
+              : "Actualizare documente legale"}
           </h2>
 
           <p className="mb-4 text-sm text-muted-foreground">
-            Am actualizat documentele noastre legale. Pentru a continua să
-            folosești QuizHub, te rugăm să confirmi că ai citit și ești de acord
-            cu:
+            {isFirstConsent
+              ? "Pentru a continua, te rugăm confirmă că ai citit și ești de acord cu:"
+              : "Am actualizat documentele noastre legale. Pentru a continua să folosești QuizHub, te rugăm să confirmi că ai citit și ești de acord cu:"}
           </p>
 
           <ul className="mb-4 space-y-1.5">

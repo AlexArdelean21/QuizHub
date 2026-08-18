@@ -1,6 +1,7 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
+import { signInWithGoogle } from "@/lib/auth/google-signin"
 
 /** Official four-color Google "G" (brand guidelines paths). */
 function GoogleGIcon() {
@@ -27,8 +28,9 @@ function GoogleGIcon() {
 }
 
 /**
- * Visual placeholder for Google OAuth. Disabled on purpose — wiring comes in a
- * later task. Shared by /login and /signup so the two pages stay in sync.
+ * Shared Google OAuth entry point for /login and /signup. The button is a
+ * Server Action form so it works from both the client login page and the
+ * client signup form without extra client-side OAuth wiring.
  */
 export function GoogleContinuePlaceholder() {
   return (
@@ -38,16 +40,12 @@ export function GoogleContinuePlaceholder() {
         <span className="text-xs text-muted-foreground">sau</span>
         <hr className="flex-1 border-border" />
       </div>
-      <Button
-        type="button"
-        variant="outline"
-        className="w-full"
-        disabled
-        title="În curând"
-      >
-        <GoogleGIcon />
-        Continuă cu Google
-      </Button>
+      <form action={signInWithGoogle}>
+        <Button type="submit" variant="outline" className="w-full">
+          <GoogleGIcon />
+          Continuă cu Google
+        </Button>
+      </form>
     </div>
   )
 }

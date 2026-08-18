@@ -37,3 +37,22 @@ export async function getPendingConsents(userId: string): Promise<PendingConsent
     (doc) => !acceptedSet.has(`${doc.type}:${doc.version}`)
   );
 }
+
+/**
+ * True if the user has ever recorded any consent row, regardless of document
+ * type or version. Used to distinguish a brand-new account from an existing
+ * user whose terms just changed.
+ */
+export async function hasAnyPriorConsent(userId: string): Promise<boolean> {
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("user_consents")
+    .select("id")
+    .eq("user_id", userId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) return true;
+  return data != null;
+}
+
