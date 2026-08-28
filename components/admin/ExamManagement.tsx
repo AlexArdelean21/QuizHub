@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState, useTransition } from "react"
+import { useEffect, useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import {
   AlignLeft,
@@ -41,6 +41,9 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { ModalPortal } from "@/components/ui/modal-portal"
 import { QuestionEditorModal } from "@/components/admin/QuestionEditorModal"
+import { DocumentAiImportModal } from "@/components/admin/DocumentAiImportModal"
+import { getStareCredite } from "@/app/admin/document-ai-actions"
+import type { StareCredite } from "@/lib/document-ai/types"
 import { parsePlainTextToQuestions } from "@/lib/exams/parse"
 
 type ToastState = {
@@ -112,6 +115,9 @@ export function ExamManagement({
   const [showJsonGuide, setShowJsonGuide] = useState(false)
   const [showTextGuide, setShowTextGuide] = useState(false)
 
+  const [showDocumentAiModal, setShowDocumentAiModal] = useState(false)
+  const [stareCredite, setStareCredite] = useState<StareCredite | null>(null)
+
   const [previewing, startPreviewTransition] = useTransition()
   const [creating, startCreateTransition] = useTransition()
   const [savingUpdate, startSavingUpdateTransition] = useTransition()
@@ -162,6 +168,30 @@ export function ExamManagement({
     window.setTimeout(() => {
       setToast((current) => (current?.message === nextToast.message ? null : current))
     }, 4000)
+  }
+
+  // Decide dacă „Examen nou" pornește fluxul Document AI sau pe cel clasic.
+  useEffect(() => {
+    let activ = true
+    void getStareCredite().then((rezultat) => {
+      if (activ) setStareCredite(rezultat)
+    })
+    return () => {
+      activ = false
+    }
+  }, [])
+
+  // Creditele rămase se schimbă după fiecare import, deci se recitesc la închidere.
+  const reincarcaCredite = () => {
+    void getStareCredite().then(setStareCredite)
+  }
+
+  const handleClickExamenNou = () => {
+    if (stareCredite?.success && stareCredite.aiImportEnabled) {
+      setShowDocumentAiModal(true)
+      return
+    }
+    setShowCreateModal(true)
   }
 
   const filteredExams = useMemo(() => {
@@ -603,7 +633,7 @@ export function ExamManagement({
         </div>
         <Button
           type="button"
-          onClick={() => setShowCreateModal(true)}
+          onClick={handleClickExamenNou}
           className="bg-blue-600 text-white hover:bg-blue-500"
         >
           <Plus className="mr-1 size-4" />
@@ -782,6 +812,30 @@ export function ExamManagement({
 
         </>
       )}
+
+      <DocumentAiImportModal
+        open={showDocumentAiModal}
+        stareCredite={stareCredite}
+        onClose={() => {
+          setShowDocumentAiModal(false)
+          reincarcaCredite()
+        }}
+        onImportManual={() => {
+          setShowDocumentAiModal(false)
+          setShowCreateModal(true)
+        }}
+        onFinalizat={(mesaj) => {
+          setShowDocumentAiModal(false)
+          reincarcaCredite()
+          pushToast({ type: "success", message: mesaj })
+          router.refresh()
+        }}
+        onAnulat={(mesaj) => {
+          setShowDocumentAiModal(false)
+          reincarcaCredite()
+          pushToast({ type: "success", message: mesaj })
+        }}
+      />
 
       {showCreateModal ? (
         <ModalPortal>

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { OrgBreakdown, LOBBY_KEY, type OrgStat } from "@/components/admin/OrgBreakdown"
+import { DocumentAiCreditWidget } from "@/components/admin/DocumentAiCreditWidget"
 import { ExamManagement } from "@/components/admin/ExamManagement"
 import { UserManagement } from "@/components/admin/UserManagement"
 import type {
@@ -59,6 +60,10 @@ export function AdminDashboardShell({
         selectedOrgId={selectedOrgId}
         onSelectOrg={handleSelectOrg}
       />
+
+      {/* Creditele sunt legate de organizația contului, deci widget-ul se ascunde
+          singur în vederea agregată peste toate organizațiile. */}
+      {selectedOrgId && selectedOrgId !== LOBBY_KEY ? <DocumentAiCreditWidget /> : null}
 
       <ExamManagement
         key={`exams-${shellKey}`}

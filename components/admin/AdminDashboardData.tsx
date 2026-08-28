@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js"
 import { normalizeRole, type AppRole } from "@/lib/auth/roles"
 import type { AdminContext } from "@/lib/auth/admin-context"
 import { AdminDashboardShell } from "@/components/admin/AdminDashboardShell"
+import { DocumentAiCreditWidget } from "@/components/admin/DocumentAiCreditWidget"
 import { ExamManagement } from "@/components/admin/ExamManagement"
 import { UserManagement } from "@/components/admin/UserManagement"
 import type { OrgStat } from "@/components/admin/OrgBreakdown"
@@ -267,6 +268,7 @@ export async function AdminDashboardData({ context }: Props) {
 
   return (
     <>
+      <DocumentAiCreditWidget />
       <ExamManagement
         examene={examene}
         organizations={organizations}
