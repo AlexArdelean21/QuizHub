@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { OrgBreakdown, LOBBY_KEY, type OrgStat } from "@/components/admin/OrgBreakdown"
+import { DocumentAiCreditProvider } from "@/components/admin/DocumentAiCreditContext"
 import { DocumentAiCreditWidget } from "@/components/admin/DocumentAiCreditWidget"
 import { ExamManagement } from "@/components/admin/ExamManagement"
 import { UserManagement } from "@/components/admin/UserManagement"
@@ -53,7 +54,7 @@ export function AdminDashboardShell({
   const shellKey = selectedOrgId ?? "__all__"
 
   return (
-    <>
+    <DocumentAiCreditProvider>
       <OrgBreakdown
         orgs={orgStats}
         unassignedCount={unassignedCount}
@@ -83,6 +84,6 @@ export function AdminDashboardShell({
         currentUserId={currentUserId}
         scopedOrgId={null}
       />
-    </>
+    </DocumentAiCreditProvider>
   )
 }

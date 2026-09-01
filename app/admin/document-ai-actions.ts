@@ -749,6 +749,49 @@ export async function getStareCredite(): Promise<StareCredite> {
   }
 }
 
+/**
+ * Sesiunea rămasă `in_progres` după ce un tab a fost închis în timpul procesării.
+ * Fără ea, orice import nou e respins până rulează cronul de curățare, iar userul
+ * nu are cum să iasă din blocaj din interfață.
+ */
+export async function getSesiuneActiva(): Promise<{
+  success: boolean
+  sesiune?: { id: string; numeFisier: string; creatLa: string; status: string }
+  eroare?: string
+}> {
+  try {
+    const { orgId } = await cereOrgAdmin()
+    const admin = createSupabaseAdminClient()
+    await cereImportActivat(admin, orgId)
+
+    const { data, error } = await admin
+      .from("document_ai_sesiuni_import")
+      .select("id, nume_fisier, creat_la, status")
+      .eq("org_id", orgId)
+      .eq("status", "in_progres")
+      .order("creat_la", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (error) {
+      throw new DocumentAiError("Sesiunile de import nu au putut fi verificate.")
+    }
+    if (!data) return { success: true }
+
+    return {
+      success: true,
+      sesiune: {
+        id: String(data.id),
+        numeFisier: String(data.nume_fisier ?? ""),
+        creatLa: String(data.creat_la),
+        status: String(data.status),
+      },
+    }
+  } catch (error) {
+    return { success: false, eroare: toEroare(error) }
+  }
+}
+
 /** Planul de chunk-uri pentru un document, ca frontend-ul să știe câți pași are. */
 export async function getPlanChunkuri(
   numarPagini: number

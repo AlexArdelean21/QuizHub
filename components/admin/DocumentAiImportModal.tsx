@@ -1,7 +1,9 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { AlertTriangle, RotateCcw, Sparkles, Upload, X } from "lucide-react"
+
+import { anuleazaImport, getSesiuneActiva } from "@/app/admin/document-ai-actions"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -39,6 +41,13 @@ const NIVELE: NivelModel[] = ["standard", "precizie_ridicata", "maxim"]
 const EMAIL_CREDITE =
   "mailto:contact@quizhub.ro?subject=Credite%20Document%20AI"
 
+type SesiuneBlocata = {
+  id: string
+  numeFisier: string
+  creatLa: string
+  status: string
+}
+
 type DocumentAiImportModalProps = {
   open: boolean
   stareCredite: StareCredite | null
@@ -47,6 +56,19 @@ type DocumentAiImportModalProps = {
   onImportManual: () => void
   onFinalizat: (mesaj: string) => void
   onAnulat: (mesaj: string) => void
+  /** Reîmprospătează soldul afișat după o restituire care nu închide modalul. */
+  onCrediteSchimbate: () => void
+}
+
+function formateazaMomentul(iso: string): string {
+  const data = new Date(iso)
+  if (Number.isNaN(data.getTime())) return "un moment necunoscut"
+  return data.toLocaleString("ro-RO", {
+    day: "numeric",
+    month: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
 }
 
 function motiveVerificare(intrebare: IntrebareExtrasa): string[] {
@@ -74,10 +96,10 @@ function valideazaSelectia(files: File[]): string | null {
 
   for (const file of files) {
     if (!esteMimeTypeAcceptat(file.type)) {
-      return `„${file.name}" nu este un tip acceptat. Acceptăm PDF, DOCX, PNG și JPEG.`
+      return `„${file.name}” nu este un tip acceptat. Acceptăm PDF, DOCX, PNG și JPEG.`
     }
     if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
-      return `„${file.name}" depășește limita de ${MAX_FILE_SIZE_MB}MB.`
+      return `„${file.name}” depășește limita de ${MAX_FILE_SIZE_MB}MB.`
     }
   }
 
@@ -102,12 +124,16 @@ export function DocumentAiImportModal({
   onImportManual,
   onFinalizat,
   onAnulat,
+  onCrediteSchimbate,
 }: DocumentAiImportModalProps) {
   const [numeExamen, setNumeExamen] = useState("")
   const [nivelModel, setNivelModel] = useState<NivelModel>("standard")
   const [modExtractie, setModExtractie] = useState<ModExtractie>("mod_a")
   const [files, setFiles] = useState<File[]>([])
   const [eroareFisier, setEroareFisier] = useState<string | null>(null)
+  const [sesiuneBlocata, setSesiuneBlocata] = useState<SesiuneBlocata | null>(null)
+  const [seDeblocheaza, setSeDeblocheaza] = useState(false)
+  const [eroareDeblocare, setEroareDeblocare] = useState<string | null>(null)
 
   const importAi = useDocumentAiImport()
   const {
@@ -116,6 +142,7 @@ export function DocumentAiImportModal({
     intrebari,
     intrebariSelectate,
     excluse,
+    nedeterminateInitial,
     chunkuriEsuate,
     crediteRamaseX100,
     mesajEroare,
@@ -137,6 +164,22 @@ export function DocumentAiImportModal({
   const inLucru = faza === "verificare" || faza === "upload" || faza === "procesare"
   const poateInchide = faza !== "finalizare" && !inLucru
 
+  // Un tab închis în timpul procesării lasă sesiunea `in_progres` în baza de date,
+  // iar serverul refuză orice import nou până e eliberată.
+  useEffect(() => {
+    if (!open || faza !== "configurare") return
+
+    let activ = true
+    void getSesiuneActiva().then((rezultat) => {
+      if (activ && rezultat.success) setSesiuneBlocata(rezultat.sesiune ?? null)
+    })
+    return () => {
+      activ = false
+    }
+  }, [open, faza])
+
+  const afiseazaDeblocare = sesiuneBlocata !== null && faza === "configurare"
+
   if (!open) return null
 
   const reseteazaFormular = () => {
@@ -150,7 +193,28 @@ export function DocumentAiImportModal({
   const inchideSiReseteaza = () => {
     importAi.reseteaza()
     reseteazaFormular()
+    setSesiuneBlocata(null)
+    setEroareDeblocare(null)
     onClose()
+  }
+
+  const handleDeblocheaza = () => {
+    if (!sesiuneBlocata) return
+    setSeDeblocheaza(true)
+    setEroareDeblocare(null)
+
+    void (async () => {
+      const rezultat = await anuleazaImport(sesiuneBlocata.id)
+      setSeDeblocheaza(false)
+
+      if (!rezultat.success) {
+        setEroareDeblocare(rezultat.eroare ?? "Importul blocat nu a putut fi anulat.")
+        return
+      }
+
+      setSesiuneBlocata(null)
+      onCrediteSchimbate()
+    })()
   }
 
   const handleSelecteazaFisiere = (lista: FileList | null) => {
@@ -234,7 +298,11 @@ export function DocumentAiImportModal({
           </div>
 
           <div className="flex-1 overflow-y-auto p-5">
-            {faza === "configurare" || faza === "eroare" ? (
+            {afiseazaDeblocare && sesiuneBlocata ? (
+              <EcranSesiuneBlocata sesiune={sesiuneBlocata} eroare={eroareDeblocare} />
+            ) : null}
+
+            {!afiseazaDeblocare && (faza === "configurare" || faza === "eroare") ? (
               <EcranConfigurare
                 numeExamen={numeExamen}
                 setNumeExamen={setNumeExamen}
@@ -260,6 +328,7 @@ export function DocumentAiImportModal({
               <EcranPreview
                 intrebari={intrebari}
                 excluse={excluse}
+                nedeterminateInitial={nedeterminateInitial}
                 sesiuneOprita={sesiuneOprita}
                 paginaOprire={paginaOprire}
                 numarDeVerificat={numarDeVerificat}
@@ -275,7 +344,23 @@ export function DocumentAiImportModal({
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 p-5 pt-3 dark:border-slate-800">
-            {faza === "configurare" || faza === "eroare" ? (
+            {afiseazaDeblocare ? (
+              <>
+                <Button type="button" variant="secondary" onClick={inchideSiReseteaza}>
+                  Închide
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleDeblocheaza}
+                  disabled={seDeblocheaza}
+                  className="bg-blue-600 text-white hover:bg-blue-500"
+                >
+                  {seDeblocheaza ? "Se anulează..." : "Anulează importul blocat"}
+                </Button>
+              </>
+            ) : null}
+
+            {!afiseazaDeblocare && (faza === "configurare" || faza === "eroare") ? (
               <>
                 <Button
                   type="button"
@@ -339,6 +424,39 @@ export function DocumentAiImportModal({
         </div>
       </div>
     </ModalPortal>
+  )
+}
+
+// ---------------------------------------------------------------------------
+
+function EcranSesiuneBlocata({
+  sesiune,
+  eroare,
+}: {
+  sesiune: SesiuneBlocata
+  eroare: string | null
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-700 dark:border-amber-800/50 dark:bg-amber-900/20 dark:text-amber-400">
+        <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+        <span>
+          Ai un import neterminat, început la {formateazaMomentul(sesiune.creatLa)}, pentru
+          documentul „{sesiune.numeFisier}&rdquo;. Anulează-l pentru a putea începe unul nou.
+        </span>
+      </div>
+
+      <p className="text-sm text-slate-500 dark:text-slate-400">
+        Progresul acelui import nu mai poate fi reluat. Creditele consumate până la
+        întrerupere îți vor fi restituite la anulare.
+      </p>
+
+      {eroare ? (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400">
+          {eroare}
+        </p>
+      ) : null}
+    </div>
   )
 }
 
@@ -492,16 +610,28 @@ function EcranProcesare({ faza, progres }: { faza: FazaImport; progres: ProgresI
         ? "Se încarcă fișierul..."
         : `Se procesează... pagina ${progres.paginaCurenta} din ${progres.totalPagini}`
 
+  // Progresul e setat înainte de a porni apelul către Claude, deci ultimul chunk
+  // ar rămâne blocat pe 100% cât durează extragerea. Un document care încape într-un
+  // singur chunk ar arăta 100% de la bun început.
+  const nedeterminat =
+    faza !== "procesare" ||
+    progres.totalChunkuri <= 1 ||
+    progres.chunkCurent >= progres.totalChunkuri
+
   return (
     <div className="py-8">
       <p className="text-center text-sm font-medium text-slate-700 dark:text-slate-200">
         {eticheta}
       </p>
       <div className="mx-auto mt-4 h-2 w-full max-w-sm overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
-        <div
-          className="h-full rounded-full bg-blue-600 transition-all duration-500"
-          style={{ width: `${faza === "procesare" ? procent : 5}%` }}
-        />
+        {nedeterminat ? (
+          <div className="progress-indeterminate h-full rounded-full bg-blue-600" />
+        ) : (
+          <div
+            className="h-full rounded-full bg-blue-600 transition-all duration-500"
+            style={{ width: `${procent}%` }}
+          />
+        )}
       </div>
       <p className="mt-3 text-center text-xs text-slate-500 dark:text-slate-400">
         Poți lăsa fereastra deschisă — extragerea continuă în fundal.
@@ -515,6 +645,7 @@ function EcranProcesare({ faza, progres }: { faza: FazaImport; progres: ProgresI
 type EcranPreviewProps = {
   intrebari: IntrebareExtrasa[]
   excluse: Set<string>
+  nedeterminateInitial: Set<string>
   sesiuneOprita: boolean
   paginaOprire: number | null
   numarDeVerificat: number
@@ -528,6 +659,7 @@ type EcranPreviewProps = {
 function EcranPreview({
   intrebari,
   excluse,
+  nedeterminateInitial,
   sesiuneOprita,
   paginaOprire,
   numarDeVerificat,
@@ -585,6 +717,7 @@ function EcranPreview({
             key={intrebare.id_temporar}
             intrebare={intrebare}
             inclusa={!excluse.has(intrebare.id_temporar)}
+            editabil={nedeterminateInitial.has(intrebare.id_temporar)}
             onToggleIncludere={onToggleIncludere}
             onRaspunsManual={onRaspunsManual}
           />
@@ -603,11 +736,14 @@ function EcranPreview({
 function CardIntrebare({
   intrebare,
   inclusa,
+  editabil,
   onToggleIncludere,
   onRaspunsManual,
 }: {
   intrebare: IntrebareExtrasa
   inclusa: boolean
+  /** Extragerea nu a găsit răspunsul: userul îl alege și îl poate răzgândi oricând. */
+  editabil: boolean
   onToggleIncludere: (idTemporar: string) => void
   onRaspunsManual: (idTemporar: string, index: number) => void
 }) {
@@ -656,13 +792,20 @@ function CardIntrebare({
               const corecta = intrebare.raspuns_corect.includes(index)
               const numeGrup = `raspuns-${intrebare.id_temporar}`
 
-              if (faraRaspuns) {
+              if (editabil) {
                 return (
                   <li key={`${numeGrup}-${index}`}>
-                    <label className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1 text-sm text-slate-700 transition-colors hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800">
+                    <label
+                      className={`flex cursor-pointer items-start gap-2 rounded-md px-2 py-1 text-sm transition-colors hover:bg-slate-50 dark:hover:bg-slate-800 ${
+                        corecta
+                          ? "font-medium text-emerald-700 dark:text-emerald-400"
+                          : "text-slate-700 dark:text-slate-300"
+                      }`}
+                    >
                       <input
                         type="radio"
                         name={numeGrup}
+                        checked={corecta}
                         className="mt-1 accent-blue-600"
                         onChange={() => onRaspunsManual(intrebare.id_temporar, index)}
                       />

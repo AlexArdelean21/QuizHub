@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { ChevronDown, Sparkles } from "lucide-react"
 
 import { getStareCredite } from "@/app/admin/document-ai-actions"
+import { useDocumentAiCredite } from "@/components/admin/DocumentAiCreditContext"
 import { formateazaCredite } from "@/lib/document-ai/pricing"
 import type { StareCredite } from "@/lib/document-ai/types"
 
@@ -17,7 +18,10 @@ function formateazaData(iso: string | null | undefined): string | null {
 export function DocumentAiCreditWidget() {
   const [stare, setStare] = useState<StareCredite | null>(null)
   const [extins, setExtins] = useState(false)
+  const { refreshKey } = useDocumentAiCredite()
 
+  // Refetch (nu remontare) la fiecare import finalizat sau anulat: soldul vechi
+  // rămâne afișat până sosește cel nou, fără să clipească widget-ul.
   useEffect(() => {
     let activ = true
     void getStareCredite().then((rezultat) => {
@@ -26,7 +30,7 @@ export function DocumentAiCreditWidget() {
     return () => {
       activ = false
     }
-  }, [])
+  }, [refreshKey])
 
   // Fără credite AI (sau fără drept de acces) widget-ul nu ocupă spațiu în dashboard.
   if (!stare?.success || !stare.aiImportEnabled) return null

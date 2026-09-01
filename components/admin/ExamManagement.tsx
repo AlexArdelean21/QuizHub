@@ -42,6 +42,7 @@ import {
 import { ModalPortal } from "@/components/ui/modal-portal"
 import { QuestionEditorModal } from "@/components/admin/QuestionEditorModal"
 import { DocumentAiImportModal } from "@/components/admin/DocumentAiImportModal"
+import { useDocumentAiCredite } from "@/components/admin/DocumentAiCreditContext"
 import { getStareCredite } from "@/app/admin/document-ai-actions"
 import type { StareCredite } from "@/lib/document-ai/types"
 import { parsePlainTextToQuestions } from "@/lib/exams/parse"
@@ -77,6 +78,7 @@ export function ExamManagement({
   defaultOrgId,
 }: ExamManagementProps) {
   const router = useRouter()
+  const credite = useDocumentAiCredite()
   const [searchTerm, setSearchTerm] = useState("")
   const [page, setPage] = useState(1)
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -181,9 +183,11 @@ export function ExamManagement({
     }
   }, [])
 
-  // Creditele rămase se schimbă după fiecare import, deci se recitesc la închidere.
+  // Creditele rămase se schimbă după fiecare import, deci se recitesc la închidere:
+  // local, pentru decizia butonului „Examen nou", și în widget-ul de pe dashboard.
   const reincarcaCredite = () => {
     void getStareCredite().then(setStareCredite)
+    credite.refresh()
   }
 
   const handleClickExamenNou = () => {
@@ -835,6 +839,7 @@ export function ExamManagement({
           reincarcaCredite()
           pushToast({ type: "success", message: mesaj })
         }}
+        onCrediteSchimbate={reincarcaCredite}
       />
 
       {showCreateModal ? (

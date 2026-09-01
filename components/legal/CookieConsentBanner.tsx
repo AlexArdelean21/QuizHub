@@ -68,8 +68,13 @@ export function CookieConsentBanner() {
 
   return (
     <>
-      {/* Banner bottom sheet */}
-      <div className="fixed inset-x-0 bottom-0 z-50 border-t border-border bg-background/95 p-4 backdrop-blur supports-[backdrop-filter]:bg-background/80 md:p-6">
+      {/*
+        Banner bottom sheet. Pe mobil, BottomTabBar plutește la z-[130] deasupra
+        acestui banner (z-50); padding-ul de jos ține butoanele deasupra barei, în loc
+        să ridice tot banner-ul — bara e ascunsă pe multe rute, iar un offset fix ar
+        lăsa acolo un gol. 66px = 58px înălțimea barei + 8px marginea ei.
+      */}
+      <div className="fixed inset-x-0 bottom-0 z-50 border-t border-border bg-background/95 p-4 pb-[calc(1rem+66px+env(safe-area-inset-bottom))] backdrop-blur supports-[backdrop-filter]:bg-background/80 md:p-6 md:pb-6">
         <div className="mx-auto flex max-w-4xl flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <p className="text-sm text-muted-foreground">
             Folosim cookie-uri strict necesare pentru autentificare și, opțional,
@@ -108,8 +113,9 @@ export function CookieConsentBanner() {
       {/* Preferences modal */}
       {preferencesOpen && (
         <ModalPortal>
+          {/* Peste BottomTabBar (z-[130]), altfel bara plutește peste overlay. */}
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+            className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 p-4"
             onClick={() => setPreferencesOpen(false)}
           >
             <div

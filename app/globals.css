@@ -236,6 +236,26 @@ body {
   50% { background-position: 100% 50%; }
 }
 
+/* ── Indeterminate progress ──
+   Pentru pași a căror durată nu se poate estima (ex. un singur chunk trimis către
+   Document AI): o bandă care traversează continuu, în loc de un procent înghețat. */
+.progress-indeterminate {
+  width: 40%;
+  animation: progress-indeterminate 1.4s ease-in-out infinite;
+}
+
+@keyframes progress-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-indeterminate {
+    width: 100%;
+    animation: none;
+  }
+}
+
 /* ── Gradient text helper ── */
 .text-gradient {
   background: linear-gradient(135deg, #3b82f6, #8b5cf6, #06b6d4);

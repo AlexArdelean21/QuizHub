@@ -87,6 +87,14 @@ export function useDocumentAiImport() {
   const [mesajEroareStare, setMesajEroareStare] = useState<string | null>(null)
   const [sesiuneOprita, setSesiuneOprita] = useState(false)
   const [paginaOprire, setPaginaOprire] = useState<number | null>(null)
+  /**
+   * Întrebările venite fără răspuns de la extragere. Se reține separat de
+   * `raspuns_corect`, care se schimbă imediat ce userul alege: altfel selectorul
+   * manual ar dispărea exact la prima alegere, fără posibilitatea de a o corecta.
+   */
+  const [nedeterminateInitial, setNedeterminateInitial] = useState<Set<string>>(
+    () => new Set()
+  )
 
   // Bucla de procesare rulează în afara ciclului de render; fără garda asta ar
   // continua să scrie în state după ce modalul a fost închis.
@@ -116,6 +124,7 @@ export function useDocumentAiImport() {
     setMesajEroareStare(null)
     setSesiuneOprita(false)
     setPaginaOprire(null)
+    setNedeterminateInitial(new Set())
   }, [])
 
   /** Deduplicare locală: overlap-ul dintre chunk-uri returnează aceleași întrebări de două ori. */
@@ -127,8 +136,17 @@ export function useDocumentAiImport() {
       cheiVazuteRef.current.add(cheie)
       unice.push(intrebare)
     }
-    if (unice.length > 0) {
-      setIntrebari((curente) => [...curente, ...unice])
+    if (unice.length === 0) return
+
+    setIntrebari((curente) => [...curente, ...unice])
+
+    const faraRaspuns = unice.filter((intrebare) => intrebare.raspuns_corect.length === 0)
+    if (faraRaspuns.length > 0) {
+      setNedeterminateInitial((curente) => {
+        const urmatoare = new Set(curente)
+        for (const intrebare of faraRaspuns) urmatoare.add(intrebare.id_temporar)
+        return urmatoare
+      })
     }
   }, [])
 
@@ -210,6 +228,7 @@ export function useDocumentAiImport() {
           setChunkuriEsuate([])
           setSesiuneOprita(false)
           setPaginaOprire(null)
+          setNedeterminateInitial(new Set())
         }
 
         const numarPagini = await numaraPaginiClient(files)
@@ -434,6 +453,7 @@ export function useDocumentAiImport() {
     intrebari,
     intrebariSelectate,
     excluse,
+    nedeterminateInitial,
     chunkuriEsuate,
     crediteRamaseX100,
     mesajEroare: mesajEroareStare,
