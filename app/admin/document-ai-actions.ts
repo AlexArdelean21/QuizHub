@@ -471,6 +471,92 @@ export async function proceseazaChunkDocument(params: {
 }
 
 // ---------------------------------------------------------------------------
+// 6.35 Verificare duplicate pentru preview
+// ---------------------------------------------------------------------------
+
+/**
+ * Rulează același RPC de deduplicare ca finalizarea, dar fără să scrie nimic:
+ * userul vede duplicatele în preview, nu abia după ce apasă „Importă”.
+ * Dedup-ul din `finalizeazaImport` rămâne plasa de siguranță finală.
+ */
+export async function verificaDuplicate(params: {
+  sessionId: string
+  /** Absent la crearea unui examen nou: acolo doar duplicatele din lot contează. */
+  examenId?: number
+  intrebari: { id_temporar: string; intrebare: string; variante: string[] }[]
+}): Promise<{
+  success: boolean
+  duplicate?: { id_temporar: string; inDb: boolean; inLot: boolean }[]
+  eroare?: string
+}> {
+  try {
+    const { orgId } = await cereOrgAdmin()
+    const admin = createSupabaseAdminClient()
+    await cereImportActivat(admin, orgId)
+
+    if (!esteUuid(String(params.sessionId ?? ""))) {
+      throw new DocumentAiError(EROARE_SESIUNE)
+    }
+    await incarcaSesiune(admin, params.sessionId, orgId, ["in_progres", "partial"])
+
+    const candidati = Array.isArray(params.intrebari) ? params.intrebari : []
+    if (candidati.length === 0) return { success: true, duplicate: [] }
+
+    let examenId: number | null = null
+    if (params.examenId !== undefined) {
+      examenId = Number(params.examenId)
+      if (!Number.isInteger(examenId) || examenId < 1) {
+        throw new DocumentAiError("Examenul selectat este invalid.")
+      }
+
+      const { data: examen, error: eroareExamen } = await admin
+        .from("examene")
+        .select("id, org_id")
+        .eq("id", examenId)
+        .maybeSingle()
+
+      if (eroareExamen || !examen || examen.org_id !== orgId) {
+        throw new DocumentAiError("Examenul selectat nu a fost găsit.")
+      }
+    }
+
+    // Cu `p_examen_id` null, `intrebare_content_hash` folosește prefixul gol, deci
+    // hash-urile rămân comparabile între ele: `duplicate_in_db` iese fals peste tot
+    // (examenul nu există încă), dar duplicatele din lot se detectează corect.
+    const { data, error } = await admin.rpc("preview_intrebari_dedup", {
+      p_examen_id: examenId,
+      p_candidates: candidati.map((intrebare) => ({
+        intrebare_text: intrebare.intrebare,
+        variante: intrebare.variante,
+      })),
+    })
+
+    if (error) {
+      throw new DocumentAiError("Verificarea duplicatelor a eșuat.")
+    }
+
+    const verdicte = (data ?? []) as {
+      idx: number
+      duplicate_in_db: boolean
+      duplicate_in_batch: boolean
+    }[]
+
+    // RPC-ul răspunde pe poziție, nu pe id: remapează pe `id_temporar`.
+    const duplicate = verdicte
+      .filter((verdict) => candidati[verdict.idx] !== undefined)
+      .map((verdict) => ({
+        id_temporar: candidati[verdict.idx].id_temporar,
+        inDb: Boolean(verdict.duplicate_in_db),
+        inLot: Boolean(verdict.duplicate_in_batch),
+      }))
+
+    return { success: true, duplicate }
+  } catch (error) {
+    return { success: false, eroare: toEroare(error) }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 6.4 Finalizare import
 // ---------------------------------------------------------------------------
 

@@ -8,6 +8,7 @@ import {
   getPlanChunkuri,
   getUploadUrlPentruSesiune,
   proceseazaChunkDocument,
+  verificaDuplicate,
   verificaSiCreazaSesiune,
 } from "@/app/admin/document-ai-actions"
 import { cheieDeduplicareLocala } from "@/lib/document-ai/chunking"
@@ -66,6 +67,8 @@ type ParametriPornire = {
   nivelModel: NivelModel
   modExtractie: ModExtractie
   numeExamen: string
+  /** Ținta importului, dacă e un examen existent: duplicatele se caută în el. */
+  examenId?: number
 }
 
 const PROGRES_INITIAL: ProgresImport = {
@@ -99,6 +102,8 @@ export function useDocumentAiImport() {
   const [raspunsuriMultiple, setRaspunsuriMultiple] = useState<Set<string>>(
     () => new Set()
   )
+  /** Verificarea de duplicate a eșuat: preview-ul merge mai departe, dar nemarcat. */
+  const [duplicateNeverificate, setDuplicateNeverificate] = useState(false)
 
   // Bucla de procesare rulează în afara ciclului de render; fără garda asta ar
   // continua să scrie în state după ce modalul a fost închis.
@@ -113,6 +118,11 @@ export function useDocumentAiImport() {
   const sesiuneRef = useRef<string | null>(null)
   const sarciniRef = useRef<SarcinaChunk[]>([])
   const cheiVazuteRef = useRef<Set<string>>(new Set())
+  /**
+   * Oglindă a listei de întrebări, citibilă din bucla de procesare — care rulează
+   * într-o closure prinsă la pornire și n-ar vedea starea proaspătă.
+   */
+  const intrebariRef = useRef<IntrebareExtrasa[]>([])
 
   useEffect(() => {
     activRef.current = true
@@ -125,6 +135,7 @@ export function useDocumentAiImport() {
     sesiuneRef.current = null
     sarciniRef.current = []
     cheiVazuteRef.current = new Set()
+    intrebariRef.current = []
     setFaza("configurare")
     setSessionId(null)
     setProgres(PROGRES_INITIAL)
@@ -136,7 +147,17 @@ export function useDocumentAiImport() {
     setSesiuneOprita(false)
     setPaginaOprire(null)
     setRaspunsuriMultiple(new Set())
+    setDuplicateNeverificate(false)
   }, [])
+
+  /** Ține `intrebariRef` și starea într-un singur pas, ca să nu se poată desincroniza. */
+  const actualizeazaIntrebari = useCallback(
+    (transforma: (curente: IntrebareExtrasa[]) => IntrebareExtrasa[]) => {
+      intrebariRef.current = transforma(intrebariRef.current)
+      setIntrebari(intrebariRef.current)
+    },
+    []
+  )
 
   /** Deduplicare locală: overlap-ul dintre chunk-uri returnează aceleași întrebări de două ori. */
   const adaugaIntrebari = useCallback((noi: IntrebareExtrasa[]) => {
@@ -149,7 +170,7 @@ export function useDocumentAiImport() {
     }
     if (unice.length === 0) return
 
-    setIntrebari((curente) => [...curente, ...unice])
+    actualizeazaIntrebari((curente) => [...curente, ...unice])
 
     const multiple = unice.filter((intrebare) => intrebare.raspuns_corect.length > 1)
     if (multiple.length > 0) {
@@ -159,7 +180,59 @@ export function useDocumentAiImport() {
         return urmatoare
       })
     }
-  }, [])
+  }, [actualizeazaIntrebari])
+
+  /**
+   * Marchează duplicatele înainte de preview și debifează automat ce există deja în
+   * examen. E doar informativ: `finalizeazaImport` deduplichează oricum la scriere,
+   * deci un eșec aici nu blochează importul.
+   */
+  const marcheazaDuplicate = useCallback(
+    async (idSesiune: string, examenId?: number) => {
+      const lista = intrebariRef.current
+      if (lista.length === 0) return
+
+      const rezultat = await verificaDuplicate({
+        sessionId: idSesiune,
+        examenId,
+        intrebari: lista.map(({ id_temporar, intrebare, variante }) => ({
+          id_temporar,
+          intrebare,
+          variante,
+        })),
+      })
+
+      if (!rezultat.success || !rezultat.duplicate) {
+        setDuplicateNeverificate(true)
+        return
+      }
+
+      const verdicte = new Map(rezultat.duplicate.map((item) => [item.id_temporar, item]))
+
+      actualizeazaIntrebari((curente) =>
+        curente.map((intrebare) => {
+          const verdict = verdicte.get(intrebare.id_temporar)
+          if (!verdict) return intrebare
+          return {
+            ...intrebare,
+            duplicat_in_examen: verdict.inDb,
+            duplicat_in_lot: verdict.inLot,
+          }
+        })
+      )
+
+      // Doar cele deja prezente în examen se debifează. Duplicatele din lot rămân
+      // bifate: ambele copii poartă marcajul, iar debifarea le-ar pierde pe amândouă.
+      const deExclus = rezultat.duplicate
+        .filter((item) => item.inDb)
+        .map((item) => item.id_temporar)
+
+      if (deExclus.length > 0) {
+        setExcluse((curente) => new Set([...curente, ...deExclus]))
+      }
+    },
+    [actualizeazaIntrebari]
+  )
 
   const ruleazaSarcina = useCallback(
     async (
@@ -243,12 +316,14 @@ export function useDocumentAiImport() {
           await anuleazaImport(sesiuneRef.current)
           sesiuneRef.current = null
           cheiVazuteRef.current = new Set()
+          intrebariRef.current = []
           setIntrebari([])
           setExcluse(new Set())
           setChunkuriEsuate([])
           setSesiuneOprita(false)
           setPaginaOprire(null)
           setRaspunsuriMultiple(new Set())
+          setDuplicateNeverificate(false)
         }
 
         const numarPagini = await numaraPaginiClient(files)
@@ -371,6 +446,12 @@ export function useDocumentAiImport() {
         }
 
         if (!activ()) return
+
+        if (sesiuneRef.current) {
+          await marcheazaDuplicate(sesiuneRef.current, params.examenId)
+          if (!activ()) return
+        }
+
         setFaza("preview")
       } catch (error) {
         if (!activ()) return
@@ -378,7 +459,7 @@ export function useDocumentAiImport() {
         setFaza("eroare")
       }
     },
-    [ruleazaSarcina]
+    [marcheazaDuplicate, ruleazaSarcina]
   )
 
   const reincearcaChunk = useCallback(
@@ -420,30 +501,36 @@ export function useDocumentAiImport() {
   }, [])
 
   /** Răspuns unic: alegerea o înlocuiește pe cea anterioară. */
-  const seteazaRaspunsManual = useCallback((idTemporar: string, indexRaspuns: number) => {
-    setIntrebari((curente) =>
-      curente.map((intrebare) =>
-        intrebare.id_temporar === idTemporar
-          ? { ...intrebare, raspuns_corect: [indexRaspuns] }
-          : intrebare
+  const seteazaRaspunsManual = useCallback(
+    (idTemporar: string, indexRaspuns: number) => {
+      actualizeazaIntrebari((curente) =>
+        curente.map((intrebare) =>
+          intrebare.id_temporar === idTemporar
+            ? { ...intrebare, raspuns_corect: [indexRaspuns] }
+            : intrebare
+        )
       )
-    )
-  }, [])
+    },
+    [actualizeazaIntrebari]
+  )
 
   /** Răspunsuri multiple: fiecare variantă se adaugă sau se scoate independent. */
-  const comutaRaspunsManual = useCallback((idTemporar: string, indexRaspuns: number) => {
-    setIntrebari((curente) =>
-      curente.map((intrebare) => {
-        if (intrebare.id_temporar !== idTemporar) return intrebare
+  const comutaRaspunsManual = useCallback(
+    (idTemporar: string, indexRaspuns: number) => {
+      actualizeazaIntrebari((curente) =>
+        curente.map((intrebare) => {
+          if (intrebare.id_temporar !== idTemporar) return intrebare
 
-        const raspuns_corect = intrebare.raspuns_corect.includes(indexRaspuns)
-          ? intrebare.raspuns_corect.filter((index) => index !== indexRaspuns)
-          : [...intrebare.raspuns_corect, indexRaspuns].sort((a, b) => a - b)
+          const raspuns_corect = intrebare.raspuns_corect.includes(indexRaspuns)
+            ? intrebare.raspuns_corect.filter((index) => index !== indexRaspuns)
+            : [...intrebare.raspuns_corect, indexRaspuns].sort((a, b) => a - b)
 
-        return { ...intrebare, raspuns_corect }
-      })
-    )
-  }, [])
+          return { ...intrebare, raspuns_corect }
+        })
+      )
+    },
+    [actualizeazaIntrebari]
+  )
 
   const intrebariSelectate = intrebari.filter(
     (intrebare) => !excluse.has(intrebare.id_temporar)
@@ -497,6 +584,7 @@ export function useDocumentAiImport() {
     intrebariSelectate,
     excluse,
     raspunsuriMultiple,
+    duplicateNeverificate,
     chunkuriEsuate,
     crediteRamaseX100,
     mesajEroare: mesajEroareStare,

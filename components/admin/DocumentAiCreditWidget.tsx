@@ -5,8 +5,11 @@ import { ChevronDown, Sparkles } from "lucide-react"
 
 import { getStareCredite } from "@/app/admin/document-ai-actions"
 import { useDocumentAiCredite } from "@/components/admin/DocumentAiCreditContext"
+import { Button } from "@/components/ui/button"
 import { formateazaCredite } from "@/lib/document-ai/pricing"
 import type { StareCredite } from "@/lib/document-ai/types"
+
+const EMAIL_CREDITE = "mailto:contact@quizhub.ro?subject=Credite%20Document%20AI"
 
 function formateazaData(iso: string | null | undefined): string | null {
   if (!iso) return null
@@ -65,17 +68,31 @@ export function DocumentAiCreditWidget() {
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setExtins((precedent) => !precedent)}
-          aria-expanded={extins}
-          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-slate-500 transition-colors hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-        >
-          Detalii
-          <ChevronDown
-            className={`size-3.5 transition-transform duration-200 ${extins ? "rotate-180" : ""}`}
-          />
-        </button>
+        <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              window.location.href = EMAIL_CREDITE
+            }}
+            className="text-xs font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+          >
+            Cumpără credite extra
+          </Button>
+
+          <button
+            type="button"
+            onClick={() => setExtins((precedent) => !precedent)}
+            aria-expanded={extins}
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-slate-500 transition-colors hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+          >
+            Detalii
+            <ChevronDown
+              className={`size-3.5 transition-transform duration-200 ${extins ? "rotate-180" : ""}`}
+            />
+          </button>
+        </div>
       </div>
 
       {extins ? (

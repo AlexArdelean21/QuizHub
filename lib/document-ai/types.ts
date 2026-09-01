@@ -20,6 +20,9 @@ export interface IntrebareExtrasa {
   pagina_sursa: number
   /** Populat după merge, din extragerea mecanică a imaginilor embedded. */
   imagini_sugerate?: { path: string; url: string }[]
+  /** Marcat după verificarea de duplicate, la intrarea în preview. */
+  duplicat_in_examen?: boolean
+  duplicat_in_lot?: boolean
 }
 
 export interface RezultatChunk {

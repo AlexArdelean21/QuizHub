@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { AlertTriangle, FileText, RotateCcw, Sparkles, Upload, X } from "lucide-react"
+import { AlertTriangle, Copy, FileText, RotateCcw, Sparkles, Upload, X } from "lucide-react"
 
 import { anuleazaImport, getSesiuneActiva } from "@/app/admin/document-ai-actions"
 
@@ -37,9 +37,6 @@ const ETICHETE_MODEL: Record<NivelModel, string> = {
 }
 
 const NIVELE: NivelModel[] = ["standard", "precizie_ridicata", "maxim"]
-
-const EMAIL_CREDITE =
-  "mailto:contact@quizhub.ro?subject=Credite%20Document%20AI"
 
 type SesiuneBlocata = {
   id: string
@@ -149,6 +146,7 @@ export function DocumentAiImportModal({
     intrebariSelectate,
     excluse,
     raspunsuriMultiple,
+    duplicateNeverificate,
     chunkuriEsuate,
     crediteRamaseX100,
     mesajEroare,
@@ -235,7 +233,13 @@ export function DocumentAiImportModal({
 
   const handlePorneste = () => {
     if (!numeExamenValid || files.length === 0 || fararCredite) return
-    void importAi.porneste({ files, nivelModel, modExtractie, numeExamen })
+    void importAi.porneste({
+      files,
+      nivelModel,
+      modExtractie,
+      numeExamen,
+      examenId: examenExistent?.id,
+    })
   }
 
   const handleAnuleaza = () => {
@@ -345,6 +349,7 @@ export function DocumentAiImportModal({
                 intrebari={intrebari}
                 excluse={excluse}
                 raspunsuriMultiple={raspunsuriMultiple}
+                duplicateNeverificate={duplicateNeverificate}
                 sesiuneOprita={sesiuneOprita}
                 paginaOprire={paginaOprire}
                 numarDeVerificat={numarDeVerificat}
@@ -379,15 +384,6 @@ export function DocumentAiImportModal({
 
             {!afiseazaDeblocare && (faza === "configurare" || faza === "eroare") ? (
               <>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => {
-                    window.location.href = EMAIL_CREDITE
-                  }}
-                >
-                  Cumpără credite extra
-                </Button>
                 <Button type="button" variant="secondary" onClick={inchideSiReseteaza}>
                   Anulează
                 </Button>
@@ -426,7 +422,9 @@ export function DocumentAiImportModal({
                 >
                   {faza === "finalizare"
                     ? "Se importă..."
-                    : `Importă ${intrebariSelectate.length} întrebări`}
+                    : intrebariSelectate.length === 0
+                      ? "Nimic de importat"
+                      : `Importă ${intrebariSelectate.length} întrebări`}
                 </Button>
               </>
             ) : null}
@@ -578,7 +576,15 @@ function EcranConfigurare({
       </label>
 
       <div>
-        <label className="flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-6 text-center transition-colors hover:border-blue-400 hover:bg-blue-50/50 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-blue-500 dark:hover:bg-blue-500/5">
+        {/* Fără credite zona rămâne vizibilă, dar inertă: modalul se deschide normal,
+            iar userul vede clar de ce nu poate porni și ce alternative are. */}
+        <label
+          className={`flex flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed px-3 py-6 text-center transition-colors ${
+            fararCredite
+              ? "cursor-not-allowed border-slate-200 bg-slate-100 opacity-60 dark:border-slate-800 dark:bg-slate-900"
+              : "cursor-pointer border-slate-300 bg-slate-50 hover:border-blue-400 hover:bg-blue-50/50 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-blue-500 dark:hover:bg-blue-500/5"
+          }`}
+        >
           <Upload className="size-5 text-slate-400" />
           <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
             {files.length === 0
@@ -594,6 +600,7 @@ function EcranConfigurare({
             type="file"
             multiple
             accept=".pdf,.docx,image/png,image/jpeg"
+            disabled={fararCredite}
             className="hidden"
             onChange={(event) => onSelecteazaFisiere(event.target.files)}
           />
@@ -674,6 +681,7 @@ type EcranPreviewProps = {
   intrebari: IntrebareExtrasa[]
   excluse: Set<string>
   raspunsuriMultiple: Set<string>
+  duplicateNeverificate: boolean
   sesiuneOprita: boolean
   paginaOprire: number | null
   numarDeVerificat: number
@@ -689,6 +697,7 @@ function EcranPreview({
   intrebari,
   excluse,
   raspunsuriMultiple,
+  duplicateNeverificate,
   sesiuneOprita,
   paginaOprire,
   numarDeVerificat,
@@ -699,11 +708,27 @@ function EcranPreview({
   onRaspunsManual,
   onComutaRaspuns,
 }: EcranPreviewProps) {
+  const numarDuplicate = intrebari.filter((intrebare) => intrebare.duplicat_in_examen).length
+  const toateDuplicate = intrebari.length > 0 && numarDuplicate === intrebari.length
+
+  const segmente = [
+    `${intrebari.length} întrebări găsite`,
+    numarDuplicate > 0 ? `${numarDuplicate} deja în examen` : null,
+    numarDeVerificat > 0 ? `${numarDeVerificat} marcate pentru verificare` : null,
+  ].filter((segment): segment is string => segment !== null)
+
   return (
     <div className="space-y-3">
       <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
-        {intrebari.length} întrebări găsite, {numarDeVerificat} marcate pentru verificare
+        {segmente.join(", ")}
       </p>
+
+      {duplicateNeverificate ? (
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          Duplicatele n-au putut fi verificate în avans. Cele deja existente vor fi
+          ignorate automat la import.
+        </p>
+      ) : null}
 
       {sesiuneOprita ? (
         <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-700 dark:border-amber-800/50 dark:bg-amber-900/20 dark:text-amber-400">
@@ -741,19 +766,31 @@ function EcranPreview({
         </p>
       ) : null}
 
-      <ul className="space-y-2">
-        {intrebari.map((intrebare) => (
-          <CardIntrebare
-            key={intrebare.id_temporar}
-            intrebare={intrebare}
-            inclusa={!excluse.has(intrebare.id_temporar)}
-            raspunsMultiplu={raspunsuriMultiple.has(intrebare.id_temporar)}
-            onToggleIncludere={onToggleIncludere}
-            onRaspunsManual={onRaspunsManual}
-            onComutaRaspuns={onComutaRaspuns}
-          />
-        ))}
-      </ul>
+      {toateDuplicate ? (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-6 text-center dark:border-slate-800 dark:bg-slate-900">
+          <Copy className="mx-auto size-5 text-slate-400 dark:text-slate-500" />
+          <p className="mt-2 text-sm font-medium text-slate-700 dark:text-slate-200">
+            Toate cele {intrebari.length} întrebări extrase există deja în acest examen.
+          </p>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            Nu mai e nimic de importat din acest document.
+          </p>
+        </div>
+      ) : (
+        <ul className="space-y-2">
+          {intrebari.map((intrebare) => (
+            <CardIntrebare
+              key={intrebare.id_temporar}
+              intrebare={intrebare}
+              inclusa={!excluse.has(intrebare.id_temporar)}
+              raspunsMultiplu={raspunsuriMultiple.has(intrebare.id_temporar)}
+              onToggleIncludere={onToggleIncludere}
+              onRaspunsManual={onRaspunsManual}
+              onComutaRaspuns={onComutaRaspuns}
+            />
+          ))}
+        </ul>
+      )}
 
       <p className="text-xs text-slate-500 dark:text-slate-400">
         Poți corecta orice întrebare după import, din editorul de întrebări.
@@ -782,9 +819,14 @@ function CardIntrebare({
 }) {
   const faraRaspuns = intrebare.raspuns_corect.length === 0
   const motive = motiveVerificare(intrebare)
+  const duplicat = Boolean(intrebare.duplicat_in_examen || intrebare.duplicat_in_lot)
 
   return (
-    <li className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+    <li
+      className={`rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900 ${
+        duplicat ? "opacity-60" : ""
+      }`}
+    >
       <div className="flex items-start gap-2.5">
         <Checkbox
           checked={inclusa}
@@ -795,6 +837,26 @@ function CardIntrebare({
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <p className="text-sm text-slate-900 dark:text-white">{intrebare.intrebare}</p>
+            <div className="flex shrink-0 items-center gap-1">
+            {duplicat ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge
+                    variant="outline"
+                    className="shrink-0 border-slate-300 bg-slate-100 text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                  >
+                    Duplicat
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-xs">
+                    {intrebare.duplicat_in_examen
+                      ? "Această întrebare există deja în examen"
+                      : "Apare de mai multe ori în document"}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
             {motive.length > 0 ? (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -814,6 +876,7 @@ function CardIntrebare({
                 </TooltipContent>
               </Tooltip>
             ) : null}
+            </div>
           </div>
 
           <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
