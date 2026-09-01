@@ -118,6 +118,8 @@ export function ExamManagement({
   const [showTextGuide, setShowTextGuide] = useState(false)
 
   const [showDocumentAiModal, setShowDocumentAiModal] = useState(false)
+  /** Setat când importul AI adaugă întrebări într-un examen existent; null = examen nou. */
+  const [documentAiExam, setDocumentAiExam] = useState<AdminExamRow | null>(null)
   const [stareCredite, setStareCredite] = useState<StareCredite | null>(null)
 
   const [previewing, startPreviewTransition] = useTransition()
@@ -190,12 +192,26 @@ export function ExamManagement({
     credite.refresh()
   }
 
+  const aiImportActiv = Boolean(stareCredite?.success && stareCredite.aiImportEnabled)
+
   const handleClickExamenNou = () => {
-    if (stareCredite?.success && stareCredite.aiImportEnabled) {
+    if (aiImportActiv) {
+      setDocumentAiExam(null)
       setShowDocumentAiModal(true)
       return
     }
     setShowCreateModal(true)
+  }
+
+  /** „Adaugă întrebări” pe un examen existent: aceeași rutare ca la examen nou. */
+  const handleClickAdaugaIntrebari = (exam: AdminExamRow) => {
+    if (isBusy) return
+    if (aiImportActiv) {
+      setDocumentAiExam(exam)
+      setShowDocumentAiModal(true)
+      return
+    }
+    handleOpenUpdateModal(exam)
   }
 
   const filteredExams = useMemo(() => {
@@ -576,7 +592,7 @@ export function ExamManagement({
       </button>
       <button
         type="button"
-        onClick={() => handleOpenUpdateModal(exam)}
+        onClick={() => handleClickAdaugaIntrebari(exam)}
         disabled={isBusy}
         className={rowActionBtn}
         aria-label="Adaugă întrebări"
@@ -820,22 +836,33 @@ export function ExamManagement({
       <DocumentAiImportModal
         open={showDocumentAiModal}
         stareCredite={stareCredite}
+        examenExistent={
+          documentAiExam
+            ? { id: documentAiExam.id, nume: documentAiExam.nume_examen }
+            : undefined
+        }
         onClose={() => {
           setShowDocumentAiModal(false)
+          setDocumentAiExam(null)
           reincarcaCredite()
         }}
         onImportManual={() => {
           setShowDocumentAiModal(false)
-          setShowCreateModal(true)
+          // Fluxul clasic are două forme: adăugare într-un examen existent sau creare.
+          if (documentAiExam) handleOpenUpdateModal(documentAiExam)
+          else setShowCreateModal(true)
+          setDocumentAiExam(null)
         }}
         onFinalizat={(mesaj) => {
           setShowDocumentAiModal(false)
+          setDocumentAiExam(null)
           reincarcaCredite()
           pushToast({ type: "success", message: mesaj })
           router.refresh()
         }}
         onAnulat={(mesaj) => {
           setShowDocumentAiModal(false)
+          setDocumentAiExam(null)
           reincarcaCredite()
           pushToast({ type: "success", message: mesaj })
         }}

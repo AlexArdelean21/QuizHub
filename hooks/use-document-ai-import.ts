@@ -16,6 +16,7 @@ import type {
   IntrebareExtrasa,
   ModExtractie,
   NivelModel,
+  RezultatAnulare,
   RezultatFinalizare,
 } from "@/lib/document-ai/types"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
@@ -57,6 +58,9 @@ export type ChunkEsuat = {
   paginaStart: number
 }
 
+/** Importul creează un examen nou sau adaugă întrebări într-unul existent. */
+export type TintaImport = { numeExamenNou: string } | { examenId: number }
+
 type ParametriPornire = {
   files: File[]
   nivelModel: NivelModel
@@ -88,17 +92,24 @@ export function useDocumentAiImport() {
   const [sesiuneOprita, setSesiuneOprita] = useState(false)
   const [paginaOprire, setPaginaOprire] = useState<number | null>(null)
   /**
-   * Întrebările venite fără răspuns de la extragere. Se reține separat de
-   * `raspuns_corect`, care se schimbă imediat ce userul alege: altfel selectorul
-   * manual ar dispărea exact la prima alegere, fără posibilitatea de a o corecta.
+   * Întrebările extrase cu mai multe răspunsuri corecte. Se reține forma de la
+   * extragere, nu cea curentă: dacă userul debifează până rămâne un singur răspuns,
+   * controlul trebuie să rămână checkbox, altfel nu ar mai putea adăuga la loc.
    */
-  const [nedeterminateInitial, setNedeterminateInitial] = useState<Set<string>>(
+  const [raspunsuriMultiple, setRaspunsuriMultiple] = useState<Set<string>>(
     () => new Set()
   )
 
   // Bucla de procesare rulează în afara ciclului de render; fără garda asta ar
   // continua să scrie în state după ce modalul a fost închis.
   const activRef = useRef(true)
+  /**
+   * Identifică rularea curentă. Anularea îl incrementează, invalidând instantaneu
+   * bucla în curs — un simplu flag boolean nu ar funcționa, pentru că apelul către
+   * Claude aflat în zbor mai poate dura zeci de secunde până verifică din nou garda,
+   * iar între timp flag-ul ar fi deja resetat pentru rularea următoare.
+   */
+  const runIdRef = useRef(0)
   const sesiuneRef = useRef<string | null>(null)
   const sarciniRef = useRef<SarcinaChunk[]>([])
   const cheiVazuteRef = useRef<Set<string>>(new Set())
@@ -124,7 +135,7 @@ export function useDocumentAiImport() {
     setMesajEroareStare(null)
     setSesiuneOprita(false)
     setPaginaOprire(null)
-    setNedeterminateInitial(new Set())
+    setRaspunsuriMultiple(new Set())
   }, [])
 
   /** Deduplicare locală: overlap-ul dintre chunk-uri returnează aceleași întrebări de două ori. */
@@ -140,11 +151,11 @@ export function useDocumentAiImport() {
 
     setIntrebari((curente) => [...curente, ...unice])
 
-    const faraRaspuns = unice.filter((intrebare) => intrebare.raspuns_corect.length === 0)
-    if (faraRaspuns.length > 0) {
-      setNedeterminateInitial((curente) => {
+    const multiple = unice.filter((intrebare) => intrebare.raspuns_corect.length > 1)
+    if (multiple.length > 0) {
+      setRaspunsuriMultiple((curente) => {
         const urmatoare = new Set(curente)
-        for (const intrebare of faraRaspuns) urmatoare.add(intrebare.id_temporar)
+        for (const intrebare of multiple) urmatoare.add(intrebare.id_temporar)
         return urmatoare
       })
     }
@@ -159,6 +170,8 @@ export function useDocumentAiImport() {
       const idSesiune = sesiuneRef.current
       if (!idSesiune) return "oprit"
 
+      const runId = runIdRef.current
+
       const rezultat = await proceseazaChunkDocument({
         sessionId: idSesiune,
         storagePath: sarcina.storagePath,
@@ -168,7 +181,9 @@ export function useDocumentAiImport() {
         modExtractie,
       })
 
-      if (!activRef.current) return "oprit"
+      // Anularea a invalidat rularea cât timp chunk-ul era în zbor: rezultatul lui
+      // (și costul, refuzat oricum de `consuma_credite_import`) se ignoră.
+      if (!activRef.current || runIdRef.current !== runId) return "oprit"
 
       setCrediteRamaseX100(rezultat.crediteRamaseX100)
 
@@ -213,6 +228,11 @@ export function useDocumentAiImport() {
     async (params: ParametriPornire) => {
       const { files, nivelModel, modExtractie } = params
 
+      // Orice pornire invalidează rularea precedentă, iar `anuleaza` o invalidează
+      // pe aceasta. Toate scrierile în state de mai jos trec prin garda asta.
+      const runId = ++runIdRef.current
+      const activ = () => activRef.current && runIdRef.current === runId
+
       setMesajEroareStare(null)
       setFaza("verificare")
 
@@ -228,11 +248,11 @@ export function useDocumentAiImport() {
           setChunkuriEsuate([])
           setSesiuneOprita(false)
           setPaginaOprire(null)
-          setNedeterminateInitial(new Set())
+          setRaspunsuriMultiple(new Set())
         }
 
         const numarPagini = await numaraPaginiClient(files)
-        if (!activRef.current) return
+        if (!activ()) return
 
         const sesiune = await verificaSiCreazaSesiune({
           numeFisier: files.length === 1 ? files[0].name : `${files.length} imagini`,
@@ -240,7 +260,7 @@ export function useDocumentAiImport() {
           nivelModel,
           modExtractie,
         })
-        if (!activRef.current) return
+        if (!activ()) return
 
         if (!sesiune.success || !sesiune.sessionId) {
           setMesajEroareStare(sesiune.eroare ?? "Sesiunea nu a putut fi creată.")
@@ -266,7 +286,7 @@ export function useDocumentAiImport() {
             sesiune.sessionId,
             `${index}-${file.name.slice(-80)}`
           )
-          if (!activRef.current) return
+          if (!activ()) return
 
           if (!link.success || !link.uploadUrl || !link.token || !link.path) {
             setMesajEroareStare(link.eroare ?? "Linkul de încărcare nu a putut fi generat.")
@@ -277,7 +297,7 @@ export function useDocumentAiImport() {
           const { error: eroareUpload } = await supabase.storage
             .from(BUCKET)
             .uploadToSignedUrl(link.path, link.token, file)
-          if (!activRef.current) return
+          if (!activ()) return
 
           if (eroareUpload) {
             setMesajEroareStare(`Încărcarea fișierului a eșuat: ${eroareUpload.message}`)
@@ -304,7 +324,7 @@ export function useDocumentAiImport() {
           }))
         } else {
           const plan = await getPlanChunkuri(numarPagini)
-          if (!activRef.current) return
+          if (!activ()) return
 
           if (!plan.success) {
             setMesajEroareStare(plan.eroare ?? "Planul de procesare nu a putut fi calculat.")
@@ -333,7 +353,7 @@ export function useDocumentAiImport() {
         setFaza("procesare")
 
         for (const [index, sarcina] of sarcini.entries()) {
-          if (!activRef.current) return
+          if (!activ()) return
 
           setProgres({
             chunkCurent: index + 1,
@@ -343,17 +363,17 @@ export function useDocumentAiImport() {
           })
 
           const stare = await ruleazaSarcina(sarcina, nivelModel, modExtractie)
-          if (!activRef.current) return
+          if (!activ()) return
 
           // Epuizarea creditelor oprește tot; o eroare tehnică doar marchează
           // blocul pentru retry și lasă restul documentului să continue.
           if (stare === "oprit") break
         }
 
-        if (!activRef.current) return
+        if (!activ()) return
         setFaza("preview")
       } catch (error) {
-        if (!activRef.current) return
+        if (!activ()) return
         setMesajEroareStare(mesajEroare(error))
         setFaza("eroare")
       }
@@ -370,20 +390,25 @@ export function useDocumentAiImport() {
     [ruleazaSarcina]
   )
 
-  const anuleaza = useCallback(async () => {
-    const idSesiune = sesiuneRef.current
-    if (!idSesiune) {
-      reseteaza()
-      return { success: true as const, crediteRestituiteX100: 0 }
-    }
+  /**
+   * Anulare instantanee pentru UI. Serverul e anunțat în fundal, pentru că apelul
+   * se poate bloca zeci de secunde în spatele chunk-ului aflat deja în procesare.
+   * Chunk-ul acela se termină, dar `consuma_credite_import` refuză consumul pe o
+   * sesiune care nu mai e `in_progres`, deci nu se pierd credite.
+   */
+  const anuleaza = useCallback(
+    (laFinalizare?: (rezultat: RezultatAnulare) => void) => {
+      const idSesiune = sesiuneRef.current
 
-    // Oprește bucla de procesare înainte de a elibera sesiunea pe server.
-    activRef.current = false
-    const rezultat = await anuleazaImport(idSesiune)
-    reseteaza()
-    activRef.current = true
-    return rezultat
-  }, [reseteaza])
+      runIdRef.current += 1
+      reseteaza()
+
+      if (!idSesiune) return
+
+      void anuleazaImport(idSesiune).then((rezultat) => laFinalizare?.(rezultat))
+    },
+    [reseteaza]
+  )
 
   const excludeIntrebare = useCallback((idTemporar: string) => {
     setExcluse((curente) => {
@@ -394,6 +419,7 @@ export function useDocumentAiImport() {
     })
   }, [])
 
+  /** Răspuns unic: alegerea o înlocuiește pe cea anterioară. */
   const seteazaRaspunsManual = useCallback((idTemporar: string, indexRaspuns: number) => {
     setIntrebari((curente) =>
       curente.map((intrebare) =>
@@ -401,6 +427,21 @@ export function useDocumentAiImport() {
           ? { ...intrebare, raspuns_corect: [indexRaspuns] }
           : intrebare
       )
+    )
+  }, [])
+
+  /** Răspunsuri multiple: fiecare variantă se adaugă sau se scoate independent. */
+  const comutaRaspunsManual = useCallback((idTemporar: string, indexRaspuns: number) => {
+    setIntrebari((curente) =>
+      curente.map((intrebare) => {
+        if (intrebare.id_temporar !== idTemporar) return intrebare
+
+        const raspuns_corect = intrebare.raspuns_corect.includes(indexRaspuns)
+          ? intrebare.raspuns_corect.filter((index) => index !== indexRaspuns)
+          : [...intrebare.raspuns_corect, indexRaspuns].sort((a, b) => a - b)
+
+        return { ...intrebare, raspuns_corect }
+      })
     )
   }, [])
 
@@ -415,7 +456,7 @@ export function useDocumentAiImport() {
   const poateFinaliza = intrebariSelectate.length > 0 && nerezolvate.length === 0
 
   const finalizeaza = useCallback(
-    async (numeExamen: string): Promise<RezultatFinalizare> => {
+    async (tinta: TintaImport): Promise<RezultatFinalizare> => {
       const idSesiune = sesiuneRef.current
       if (!idSesiune) {
         return { success: false, numarImportate: 0, eroare: "Sesiunea de import lipsește." }
@@ -433,7 +474,9 @@ export function useDocumentAiImport() {
       const rezultat = await finalizeazaImport({
         sessionId: idSesiune,
         intrebariSelectate,
-        numeExamenNou: numeExamen.trim(),
+        ...("examenId" in tinta
+          ? { examenId: String(tinta.examenId) }
+          : { numeExamenNou: tinta.numeExamenNou.trim() }),
       })
 
       if (!rezultat.success) {
@@ -453,7 +496,7 @@ export function useDocumentAiImport() {
     intrebari,
     intrebariSelectate,
     excluse,
-    nedeterminateInitial,
+    raspunsuriMultiple,
     chunkuriEsuate,
     crediteRamaseX100,
     mesajEroare: mesajEroareStare,
@@ -466,6 +509,7 @@ export function useDocumentAiImport() {
     anuleaza,
     excludeIntrebare,
     seteazaRaspunsManual,
+    comutaRaspunsManual,
     finalizeaza,
     reseteaza,
   }

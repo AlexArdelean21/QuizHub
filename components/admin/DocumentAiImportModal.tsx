@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { AlertTriangle, RotateCcw, Sparkles, Upload, X } from "lucide-react"
+import { AlertTriangle, FileText, RotateCcw, Sparkles, Upload, X } from "lucide-react"
 
 import { anuleazaImport, getSesiuneActiva } from "@/app/admin/document-ai-actions"
 
@@ -58,6 +58,11 @@ type DocumentAiImportModalProps = {
   onAnulat: (mesaj: string) => void
   /** Reîmprospătează soldul afișat după o restituire care nu închide modalul. */
   onCrediteSchimbate: () => void
+  /**
+   * Prezentă când importul adaugă întrebări într-un examen deja creat. Absentă,
+   * fluxul creează un examen nou din numele cerut în ecranul de configurare.
+   */
+  examenExistent?: { id: number; nume: string }
 }
 
 function formateazaMomentul(iso: string): string {
@@ -125,6 +130,7 @@ export function DocumentAiImportModal({
   onFinalizat,
   onAnulat,
   onCrediteSchimbate,
+  examenExistent,
 }: DocumentAiImportModalProps) {
   const [numeExamen, setNumeExamen] = useState("")
   const [nivelModel, setNivelModel] = useState<NivelModel>("standard")
@@ -142,7 +148,7 @@ export function DocumentAiImportModal({
     intrebari,
     intrebariSelectate,
     excluse,
-    nedeterminateInitial,
+    raspunsuriMultiple,
     chunkuriEsuate,
     crediteRamaseX100,
     mesajEroare,
@@ -179,6 +185,9 @@ export function DocumentAiImportModal({
   }, [open, faza])
 
   const afiseazaDeblocare = sesiuneBlocata !== null && faza === "configurare"
+
+  // Numele se cere doar când importul creează examenul; altfel ținta e deja fixată.
+  const numeExamenValid = examenExistent !== undefined || numeExamen.trim().length > 0
 
   if (!open) return null
 
@@ -225,32 +234,37 @@ export function DocumentAiImportModal({
   }
 
   const handlePorneste = () => {
-    if (!numeExamen.trim() || files.length === 0 || fararCredite) return
+    if (!numeExamenValid || files.length === 0 || fararCredite) return
     void importAi.porneste({ files, nivelModel, modExtractie, numeExamen })
   }
 
   const handleAnuleaza = () => {
-    void (async () => {
-      const rezultat = await importAi.anuleaza()
-      reseteazaFormular()
-      onAnulat(
-        rezultat.success
-          ? `Import anulat. ${formateazaCredite(rezultat.crediteRestituiteX100 ?? 0)} credite au fost restituite.`
-          : (rezultat.eroare ?? "Importul nu a putut fi anulat.")
-      )
-    })()
+    // Anularea închide modalul pe loc. Serverul e anunțat în fundal, pentru că
+    // apelul stă în spatele chunk-ului aflat în procesare (poate dura minute), iar
+    // restituirea ajunge în widget prin `onCrediteSchimbate` când se încheie.
+    importAi.anuleaza((rezultat) => {
+      if (rezultat.success) onCrediteSchimbate()
+    })
+    reseteazaFormular()
+    onAnulat("Import anulat. Creditele consumate îți vor fi restituite.")
   }
 
   const handleFinalizeaza = () => {
     void (async () => {
-      const rezultat = await importAi.finalizeaza(numeExamen)
+      const rezultat = await importAi.finalizeaza(
+        examenExistent ? { examenId: examenExistent.id } : { numeExamenNou: numeExamen }
+      )
       if (!rezultat.success) return
 
       const detalii: string[] = [`${rezultat.numarImportate} întrebări importate`]
       if (rezultat.numarDuplicate) detalii.push(`${rezultat.numarDuplicate} duplicate ignorate`)
       reseteazaFormular()
       importAi.reseteaza()
-      onFinalizat(`Examen creat: ${detalii.join(", ")}.`)
+      onFinalizat(
+        examenExistent
+          ? `Examenul „${examenExistent.nume}” a fost actualizat: ${detalii.join(", ")}.`
+          : `Examen creat: ${detalii.join(", ")}.`
+      )
     })()
   }
 
@@ -262,19 +276,20 @@ export function DocumentAiImportModal({
 
   return (
     <ModalPortal>
-      <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
-        <button
-          type="button"
-          aria-label="Închide popup"
-          disabled={!poateInchide}
-          className="absolute inset-0 bg-black/60 backdrop-blur-sm disabled:cursor-not-allowed"
-          onClick={() => {
-            if (faza === "preview") handleAnuleaza()
-            else inchideSiReseteaza()
-          }}
-        />
+      {/*
+        Pe mobil bara de navigație plutește la z-[130] peste modal (z-[90]), deci
+        ultima secțiune — avertismentul despre întrebările fără răspuns — ar rămâne
+        sub ea. Padding-ul de jos rezervă exact înălțimea barei.
+      */}
+      <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 pb-[calc(1rem+var(--mobile-nav-height)+env(safe-area-inset-bottom))] md:pb-4">
+        {/*
+          Overlay inert: un click accidental în afara modalului nu trebuie să arunce
+          la gunoi un import în curs. Închiderea se face doar din X sau din butoanele
+          explicite.
+        */}
+        <div aria-hidden className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
 
-        <div className="relative z-10 flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-950">
+        <div className="relative z-10 flex max-h-full w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl md:max-h-[90vh] dark:border-slate-800 dark:bg-slate-950">
           <div className="flex items-start justify-between gap-3 border-b border-slate-200 p-5 pb-3 dark:border-slate-800">
             <div>
               <h3 className="flex items-center gap-2 text-base font-semibold text-slate-900 dark:text-white">
@@ -304,6 +319,7 @@ export function DocumentAiImportModal({
 
             {!afiseazaDeblocare && (faza === "configurare" || faza === "eroare") ? (
               <EcranConfigurare
+                examenExistent={examenExistent}
                 numeExamen={numeExamen}
                 setNumeExamen={setNumeExamen}
                 nivelModel={nivelModel}
@@ -328,7 +344,7 @@ export function DocumentAiImportModal({
               <EcranPreview
                 intrebari={intrebari}
                 excluse={excluse}
-                nedeterminateInitial={nedeterminateInitial}
+                raspunsuriMultiple={raspunsuriMultiple}
                 sesiuneOprita={sesiuneOprita}
                 paginaOprire={paginaOprire}
                 numarDeVerificat={numarDeVerificat}
@@ -339,6 +355,7 @@ export function DocumentAiImportModal({
                 }
                 onToggleIncludere={importAi.excludeIntrebare}
                 onRaspunsManual={importAi.seteazaRaspunsManual}
+                onComutaRaspuns={importAi.comutaRaspunsManual}
               />
             ) : null}
           </div>
@@ -377,7 +394,7 @@ export function DocumentAiImportModal({
                 <Button
                   type="button"
                   onClick={handlePorneste}
-                  disabled={!numeExamen.trim() || files.length === 0 || fararCredite}
+                  disabled={!numeExamenValid || files.length === 0 || fararCredite}
                   className="bg-blue-600 text-white hover:bg-blue-500"
                 >
                   Începe importul
@@ -463,6 +480,7 @@ function EcranSesiuneBlocata({
 // ---------------------------------------------------------------------------
 
 type EcranConfigurareProps = {
+  examenExistent?: { id: number; nume: string }
   numeExamen: string
   setNumeExamen: (valoare: string) => void
   nivelModel: NivelModel
@@ -478,6 +496,7 @@ type EcranConfigurareProps = {
 }
 
 function EcranConfigurare({
+  examenExistent,
   numeExamen,
   setNumeExamen,
   nivelModel,
@@ -503,15 +522,24 @@ function EcranConfigurare({
         </div>
       ) : null}
 
-      <label className="block text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
-        Nume examen
-        <input
-          value={numeExamen}
-          onChange={(event) => setNumeExamen(event.target.value)}
-          placeholder="Ex: Autorizare electrician..."
-          className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 dark:border-slate-800 dark:bg-slate-900 dark:text-white"
-        />
-      </label>
+      {examenExistent ? (
+        <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-sm text-blue-700 dark:border-blue-800/50 dark:bg-blue-900/20 dark:text-blue-300">
+          <FileText className="mt-0.5 size-4 shrink-0" />
+          <span>
+            Întrebările vor fi adăugate în examenul „{examenExistent.nume}”.
+          </span>
+        </div>
+      ) : (
+        <label className="block text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          Nume examen
+          <input
+            value={numeExamen}
+            onChange={(event) => setNumeExamen(event.target.value)}
+            placeholder="Ex: Autorizare electrician..."
+            className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 dark:border-slate-800 dark:bg-slate-900 dark:text-white"
+          />
+        </label>
+      )}
 
       <div>
         <p className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -645,7 +673,7 @@ function EcranProcesare({ faza, progres }: { faza: FazaImport; progres: ProgresI
 type EcranPreviewProps = {
   intrebari: IntrebareExtrasa[]
   excluse: Set<string>
-  nedeterminateInitial: Set<string>
+  raspunsuriMultiple: Set<string>
   sesiuneOprita: boolean
   paginaOprire: number | null
   numarDeVerificat: number
@@ -654,12 +682,13 @@ type EcranPreviewProps = {
   onReincearca: (cheie: string) => void
   onToggleIncludere: (idTemporar: string) => void
   onRaspunsManual: (idTemporar: string, index: number) => void
+  onComutaRaspuns: (idTemporar: string, index: number) => void
 }
 
 function EcranPreview({
   intrebari,
   excluse,
-  nedeterminateInitial,
+  raspunsuriMultiple,
   sesiuneOprita,
   paginaOprire,
   numarDeVerificat,
@@ -668,6 +697,7 @@ function EcranPreview({
   onReincearca,
   onToggleIncludere,
   onRaspunsManual,
+  onComutaRaspuns,
 }: EcranPreviewProps) {
   return (
     <div className="space-y-3">
@@ -717,9 +747,10 @@ function EcranPreview({
             key={intrebare.id_temporar}
             intrebare={intrebare}
             inclusa={!excluse.has(intrebare.id_temporar)}
-            editabil={nedeterminateInitial.has(intrebare.id_temporar)}
+            raspunsMultiplu={raspunsuriMultiple.has(intrebare.id_temporar)}
             onToggleIncludere={onToggleIncludere}
             onRaspunsManual={onRaspunsManual}
+            onComutaRaspuns={onComutaRaspuns}
           />
         ))}
       </ul>
@@ -736,16 +767,18 @@ function EcranPreview({
 function CardIntrebare({
   intrebare,
   inclusa,
-  editabil,
+  raspunsMultiplu,
   onToggleIncludere,
   onRaspunsManual,
+  onComutaRaspuns,
 }: {
   intrebare: IntrebareExtrasa
   inclusa: boolean
-  /** Extragerea nu a găsit răspunsul: userul îl alege și îl poate răzgândi oricând. */
-  editabil: boolean
+  /** Extrasă cu mai multe răspunsuri corecte: se bifează independent, nu exclusiv. */
+  raspunsMultiplu: boolean
   onToggleIncludere: (idTemporar: string) => void
   onRaspunsManual: (idTemporar: string, index: number) => void
+  onComutaRaspuns: (idTemporar: string, index: number) => void
 }) {
   const faraRaspuns = intrebare.raspuns_corect.length === 0
   const motive = motiveVerificare(intrebare)
@@ -792,39 +825,30 @@ function CardIntrebare({
               const corecta = intrebare.raspuns_corect.includes(index)
               const numeGrup = `raspuns-${intrebare.id_temporar}`
 
-              if (editabil) {
-                return (
-                  <li key={`${numeGrup}-${index}`}>
-                    <label
-                      className={`flex cursor-pointer items-start gap-2 rounded-md px-2 py-1 text-sm transition-colors hover:bg-slate-50 dark:hover:bg-slate-800 ${
-                        corecta
-                          ? "font-medium text-emerald-700 dark:text-emerald-400"
-                          : "text-slate-700 dark:text-slate-300"
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name={numeGrup}
-                        checked={corecta}
-                        className="mt-1 accent-blue-600"
-                        onChange={() => onRaspunsManual(intrebare.id_temporar, index)}
-                      />
-                      <span>{varianta}</span>
-                    </label>
-                  </li>
-                )
-              }
-
+              // Orice răspuns e editabil, inclusiv cele extrase cu încredere mare:
+              // decizia finală o are omul care face importul.
               return (
-                <li
-                  key={`${numeGrup}-${index}`}
-                  className={`rounded-md px-2 py-1 text-sm ${
-                    corecta
-                      ? "bg-emerald-50 font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
-                      : "text-slate-600 dark:text-slate-400"
-                  }`}
-                >
-                  {varianta}
+                <li key={`${numeGrup}-${index}`}>
+                  <label
+                    className={`flex cursor-pointer items-start gap-2 rounded-md px-2 py-1 text-sm transition-colors ${
+                      corecta
+                        ? "bg-emerald-50 font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
+                        : "text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"
+                    }`}
+                  >
+                    <input
+                      type={raspunsMultiplu ? "checkbox" : "radio"}
+                      name={numeGrup}
+                      checked={corecta}
+                      className="mt-1 accent-blue-600"
+                      onChange={() =>
+                        raspunsMultiplu
+                          ? onComutaRaspuns(intrebare.id_temporar, index)
+                          : onRaspunsManual(intrebare.id_temporar, index)
+                      }
+                    />
+                    <span>{varianta}</span>
+                  </label>
                 </li>
               )
             })}

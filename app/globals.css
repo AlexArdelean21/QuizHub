@@ -3,6 +3,11 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
+  /* Înălțimea barei de navigație mobilă (BottomTabBar / AdminSidebar): 58px
+     conținut + 8px marginea ei de jos. Bara plutește la z-[130] peste restul
+     paginii, deci overlay-urile ancorate jos trebuie să lase spațiul ăsta liber. */
+  --mobile-nav-height: 66px;
+
   --background: #f8fafc;
   --foreground: #0f172a;
   --card: #ffffff;
