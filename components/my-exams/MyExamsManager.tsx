@@ -42,6 +42,14 @@ import {
   type PreviewResult,
 } from "@/app/my-exams/actions"
 import { PersonalQuestionEditorModal } from "@/components/my-exams/PersonalQuestionEditorModal"
+import {
+  inputClass,
+  ruleBadge,
+  tabActive,
+  tabBase,
+  tabIdle,
+  tabStrip,
+} from "@/components/my-exams/styles"
 
 export type PersonalExamItem = {
   id: number
@@ -56,21 +64,12 @@ export type PersonalExamItem = {
 type ToastState = { type: "success" | "error"; message: string } | null
 type ImportMode = "excel" | "json" | "text"
 
-const inputClass =
-  "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:placeholder:text-slate-600"
 const overlayClass = "fixed inset-0 z-[90] flex items-center justify-center p-4"
 const scrimClass = "absolute inset-0 bg-black/60 backdrop-blur-sm"
-const tabBase =
-  "flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
-const tabActive = "bg-white text-slate-900 shadow-sm dark:bg-slate-800 dark:text-white"
-const tabIdle =
-  "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
 const guideBox =
   "mt-2 max-h-52 overflow-y-auto rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 dark:border-blue-800/40 dark:bg-blue-500/10 dark:text-blue-300"
 const rowActionBtn =
   "inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-const ruleBadge =
-  "rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 dark:border-slate-700 dark:bg-slate-800"
 
 export function MyExamsManager({
   exams,
@@ -464,7 +463,7 @@ export function MyExamsManager({
   // component) so inputs keep focus across re-renders.
   const renderContentPanel = (examId: number | null) => (
     <div className="mt-4">
-      <div className="flex gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-900">
+      <div className={tabStrip}>
         <button type="button" onClick={() => switchContentMode("excel")} disabled={isPending} className={`${tabBase} ${contentMode === "excel" ? tabActive : tabIdle}`}>
           <FileSpreadsheet className="size-3.5" /> Excel (.xlsx)
         </button>

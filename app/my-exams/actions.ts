@@ -84,6 +84,7 @@ type AdminClient = ReturnType<typeof createSupabaseAdminClient>
 
 const NOT_AUTHENTICATED = "Trebuie să fii autentificat."
 const NO_ACCESS = "Nu ai acces la acest examen."
+const NOT_FAVORITABLE = "Acest examen nu poate fi adăugat la favorite."
 
 function toActionError(error: unknown): string {
   if (error instanceof Error) return error.message
@@ -802,6 +803,55 @@ export async function deletePersonalQuestion(questionId: number): Promise<Action
     }
 
     await adjustRulesToPool(admin, examenId)
+
+    revalidatePath("/my-exams")
+    revalidatePath("/")
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: toActionError(error) }
+  }
+}
+
+/**
+ * Adds/removes a public exam from the caller's favourites. Deliberately runs on
+ * the user's session client, not the service role: the RLS policies on
+ * `examene_favorite` are the authorization layer (the INSERT check already
+ * rejects exams that aren't public), so the admin client would bypass the very
+ * guard we rely on.
+ */
+export async function toggleFavoriteExam(
+  examId: number,
+  shouldFavorite: boolean
+): Promise<ActionResult> {
+  try {
+    const supabase = await createSupabaseServerClient()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) return { success: false, error: NOT_AUTHENTICATED }
+
+    if (!Number.isFinite(examId) || examId <= 0) {
+      return { success: false, error: "Identificator de examen invalid." }
+    }
+
+    if (shouldFavorite) {
+      // Upsert instead of insert so a double click is idempotent rather than a
+      // primary-key conflict.
+      const { error } = await supabase.from("examene_favorite").upsert(
+        { user_id: user.id, examen_id: examId },
+        { onConflict: "user_id,examen_id", ignoreDuplicates: true }
+      )
+      // An error here is almost always the RLS check on a non-public exam;
+      // answer with a generic message instead of leaking the DB error.
+      if (error) return { success: false, error: NOT_FAVORITABLE }
+    } else {
+      const { error } = await supabase
+        .from("examene_favorite")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("examen_id", examId)
+      if (error) return { success: false, error: "Nu s-a putut elimina examenul din favorite." }
+    }
 
     revalidatePath("/my-exams")
     revalidatePath("/")

@@ -1,16 +1,19 @@
-import { Suspense } from "react"
+import { Suspense, type ReactNode } from "react"
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
-import Link from "next/link"
-import { ChevronLeft } from "lucide-react"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import {
   MyExamsManager,
   type PersonalExamItem,
 } from "@/components/my-exams/MyExamsManager"
+import { MyExamsHub } from "@/components/my-exams/MyExamsHub"
+import type { PublicExamItem } from "@/components/my-exams/PublicExamsBrowser"
 
 export const dynamic = "force-dynamic"
 export const metadata: Metadata = { title: "Examenele mele — QuizHub" }
+
+/** Row shape for the public library; defined with the component that renders it. */
+export type { PublicExamItem }
 
 function ListSkeleton() {
   return <div className="h-48 w-full animate-pulse rounded-xl bg-muted" />
@@ -44,25 +47,23 @@ export default async function MyExamsPage() {
   const maxQuestionsPerExam = Number(profile?.max_intrebari_examen_personal ?? 500)
 
   return (
-    <div className="min-h-screen bg-background">
-      <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
-        <Link
-          href="/"
-          className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground transition hover:text-foreground"
-        >
-          <ChevronLeft className="size-4" />
-          Înapoi
-        </Link>
-
-        <Suspense fallback={<ListSkeleton />}>
-          <PersonalExamsLoader
-            userId={user.id}
-            maxExams={maxExams}
-            maxQuestionsPerExam={maxQuestionsPerExam}
-          />
-        </Suspense>
-      </main>
-    </div>
+    // pb-20 keeps the last card clear of the mobile BottomTabBar.
+    <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-8 pb-20 sm:px-6 md:pb-8 lg:px-8">
+      <Suspense fallback={<ListSkeleton />}>
+        <PublicLibraryLoader
+          userId={user.id}
+          personalSlot={
+            <Suspense fallback={<ListSkeleton />}>
+              <PersonalExamsLoader
+                userId={user.id}
+                maxExams={maxExams}
+                maxQuestionsPerExam={maxQuestionsPerExam}
+              />
+            </Suspense>
+          }
+        />
+      </Suspense>
+    </main>
   )
 }
 
@@ -103,4 +104,49 @@ async function PersonalExamsLoader({
       maxQuestionsPerExam={maxQuestionsPerExam}
     />
   )
+}
+
+// Loads the public catalogue and the caller's favourites, then hands both to
+// the hub. The personal list streams independently inside `personalSlot`.
+async function PublicLibraryLoader({
+  userId,
+  personalSlot,
+}: {
+  userId: string
+  personalSlot: ReactNode
+}) {
+  const supabase = await createSupabaseServerClient()
+
+  const [favoriteResult, publicResult] = await Promise.all([
+    supabase.from("examene_favorite").select("examen_id").eq("user_id", userId),
+    supabase
+      .from("examene")
+      .select(
+        "id, nume_examen, categorie, prag_trecere, intrebari_simulare, durata_minute, is_showcase, intrebari(count)"
+      )
+      .eq("is_public", true)
+      .order("categorie", { ascending: true, nullsFirst: false })
+      .order("nume_examen", { ascending: true }),
+  ])
+
+  const favoriteIds = new Set(
+    (favoriteResult.data ?? []).map((row) => Number(row.examen_id))
+  )
+
+  const publicExams: PublicExamItem[] = (publicResult.data ?? []).map((row) => {
+    const id = Number(row.id)
+    return {
+      id,
+      nume_examen: String(row.nume_examen ?? ""),
+      categorie: row.categorie == null ? null : String(row.categorie),
+      pragTrecere: Number(row.prag_trecere ?? 0),
+      intrebariSimulare: Number(row.intrebari_simulare ?? 0),
+      durataMinute: Number(row.durata_minute ?? 0),
+      isShowcase: Boolean(row.is_showcase),
+      questionCount: extractCount(row.intrebari),
+      isFavorite: favoriteIds.has(id),
+    }
+  })
+
+  return <MyExamsHub personalSlot={personalSlot} publicExams={publicExams} />
 }

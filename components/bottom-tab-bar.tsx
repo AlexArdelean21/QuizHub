@@ -138,8 +138,14 @@ export function BottomTabBar() {
 
   if (isHidden) return null
 
+  // Four tabs for every role: a fifth is unreadable at 58px with 10px labels on
+  // a 360px viewport. Admins reach the library from "Bibliotecă" in the Cont
+  // sheet instead.
   const tabs: Tab[] = [
     { key: "quiz", label: "Quiz", icon: Home, href: "/" },
+    ...(isAdmin
+      ? []
+      : [{ key: "biblioteca", label: "Bibliotecă", icon: FileText, href: "/my-exams" }]),
     { key: "statistici", label: "Statistici", icon: BarChart3, href: "/dashboard/statistici" },
     ...(isAdmin ? [{ key: "admin", label: "Admin", icon: Shield, href: "/admin" }] : []),
     { key: "profil", label: "Cont", icon: User, onClick: () => setProfileOpen(true) },
@@ -147,6 +153,7 @@ export function BottomTabBar() {
 
   const isTabActive = (key: string) => {
     if (key === "quiz") return pathname === "/"
+    if (key === "biblioteca") return pathname === "/my-exams" || pathname.startsWith("/my-exams/")
     if (key === "statistici") return pathname === "/dashboard/statistici" || pathname.startsWith("/dashboard/statistici/")
     if (key === "admin") return pathname === "/admin" || pathname.startsWith("/admin/")
     return false
@@ -180,7 +187,7 @@ export function BottomTabBar() {
                 className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm text-foreground transition hover:bg-muted"
               >
                 <FileText size={18} />
-                Examenele mele
+                Bibliotecă
               </Link>
               <button
                 type="button"

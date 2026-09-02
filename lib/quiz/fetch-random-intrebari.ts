@@ -348,6 +348,47 @@ async function fetchPersonalExams(
   return (data ?? []) as unknown as Array<Record<string, unknown>>
 }
 
+const EXAM_SELECT_COLUMNS =
+  "id, nume_examen, prag_trecere, intrebari_simulare, variante_raspuns, durata_minute, timp_alocat_minute, org_id, creator_user_id, is_public, is_org_wide"
+
+/**
+ * Public exams the user has favourited, plus the showcase exam that is offered
+ * to everyone. Two round-trips at most: the favourite ids, then a single
+ * filtered fetch — never one query per favourite.
+ */
+async function fetchFavoriteAndShowcaseExams(
+  supabase: SupabaseClient,
+  userId: string,
+  selectColumns: string
+): Promise<Array<Record<string, unknown>>> {
+  const { data: favoriteRows, error: favoriteError } = await supabase
+    .from("examene_favorite")
+    .select("examen_id")
+    .eq("user_id", userId)
+  if (favoriteError) throw new Error(favoriteError.message)
+
+  const favoriteIds = [
+    ...new Set((favoriteRows ?? []).map((row) => Number(row.examen_id)).filter(isValidId)),
+  ]
+
+  const base = supabase
+    .from("examene")
+    .select(selectColumns)
+    .eq("is_public", true)
+    .order("id", { ascending: true })
+
+  // Interpolating the ids is safe: each one passed `isValidId`, so it is a
+  // finite positive number and cannot carry filter syntax.
+  const query =
+    favoriteIds.length > 0
+      ? base.or(`is_showcase.eq.true,id.in.(${favoriteIds.join(",")})`)
+      : base.eq("is_showcase", true)
+
+  const { data, error } = await query
+  if (error) throw new Error(error.message)
+  return (data ?? []) as unknown as Array<Record<string, unknown>>
+}
+
 export async function fetchAccessibleExams(
   supabase: SupabaseClient,
   userId: string
@@ -364,8 +405,7 @@ export async function fetchAccessibleExams(
   const role = normalizeRole(profile?.role)
   const orgId = profile?.org_id ? String(profile.org_id) : null
 
-  const selectColumns =
-    "id, nume_examen, prag_trecere, intrebari_simulare, variante_raspuns, durata_minute, timp_alocat_minute, org_id, creator_user_id, is_public, is_org_wide"
+  const selectColumns = EXAM_SELECT_COLUMNS
 
   const orderById = { ascending: true } as const
 
@@ -394,13 +434,14 @@ export async function fetchAccessibleExams(
   if (isAdminRole(role)) {
     let orgQuery = supabase.from("examene").select(selectColumns).order("id", orderById)
     if (orgId) orgQuery = orgQuery.eq("org_id", orgId)
-    const [orgResult, personalRows] = await Promise.all([
+    const [orgResult, personalRows, favoriteRows] = await Promise.all([
       orgQuery,
       fetchPersonalExams(supabase, userId, selectColumns),
+      fetchFavoriteAndShowcaseExams(supabase, userId, selectColumns),
     ])
     if (orgResult.error) throw new Error(orgResult.error.message)
     const orgRows = (orgResult.data ?? []) as Array<Record<string, unknown>>
-    return safeMap([...orgRows, ...personalRows])
+    return safeMap([...orgRows, ...personalRows, ...favoriteRows])
   }
 
   // Regular user — restricted to non-expired entries from `acces_examene`.
@@ -442,12 +483,41 @@ export async function fetchAccessibleExams(
     return (data ?? []) as Array<Record<string, unknown>>
   }
 
-  const [accessExamRows, personalRows, orgWideRows] = await Promise.all([
+  const [accessExamRows, personalRows, orgWideRows, favoriteRows] = await Promise.all([
     fetchAccessExams(),
     fetchPersonalExams(supabase, userId, selectColumns),
     fetchOrgWideExams(),
+    fetchFavoriteAndShowcaseExams(supabase, userId, selectColumns),
   ])
-  return safeMap([...accessExamRows, ...personalRows, ...orgWideRows])
+  return safeMap([...accessExamRows, ...personalRows, ...orgWideRows, ...favoriteRows])
+}
+
+/**
+ * Resolves a single public exam by id, for the `?examen=<id>` deep link into a
+ * catalogue exam the user hasn't favourited (so it is absent from
+ * `fetchAccessibleExams`). Returns null when the exam doesn't exist or isn't
+ * public.
+ *
+ * `is_public` is filtered explicitly and never left to RLS: an org exam the
+ * caller happens to be able to read must not become selectable without an
+ * `acces_examene` grant.
+ */
+export async function fetchPublicExamById(
+  supabase: SupabaseClient,
+  examId: number
+): Promise<ExamSummary | null> {
+  if (!Number.isInteger(examId) || !isValidId(examId)) return null
+
+  const { data, error } = await supabase
+    .from("examene")
+    .select(EXAM_SELECT_COLUMNS)
+    .eq("id", examId)
+    .eq("is_public", true)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  if (!data) return null
+  return mapExamSummary(data as Parameters<typeof mapExamSummary>[0])
 }
 
 const PUBLIC_EXAM_SELECT_COLUMNS =

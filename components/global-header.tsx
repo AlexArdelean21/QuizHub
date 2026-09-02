@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useEffect, useState } from "react"
-import { BarChart3, BookOpen, FileText, LogOut, Menu, Moon, Sun, X } from "lucide-react"
+import { BarChart3, BookOpen, FileText, Home, LogOut, Menu, Moon, Sun, X } from "lucide-react"
 import { usePathname } from "next/navigation"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import { useTrackActivity } from "@/hooks/use-track-activity"
@@ -32,6 +32,7 @@ export function GlobalHeader() {
     pathname === "/dashboard/admin" ||
     pathname.startsWith("/dashboard/admin/")
   const isStatisticsRoute = pathname === "/dashboard/statistici" || pathname.startsWith("/dashboard/statistici/")
+  const isMyExamsRoute = pathname === "/my-exams" || pathname.startsWith("/my-exams/")
   const canExitQuiz = showExit && pathname === "/"
 
   useEffect(() => {
@@ -255,14 +256,14 @@ export function GlobalHeader() {
               Documentație
             </Link>
 
-            {userEmail && (
+            {userEmail && !isMyExamsRoute && (
               <Link
                 href="/my-exams"
                 onClick={() => closeSidebar()}
                 className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-900"
               >
                 <FileText className="size-4" />
-                Examenele mele
+                Bibliotecă
               </Link>
             )}
 
@@ -277,12 +278,13 @@ export function GlobalHeader() {
               </Link>
             )}
 
-            {isStatisticsRoute && (
+            {(isStatisticsRoute || isMyExamsRoute) && (
               <Link
                 href="/"
                 onClick={() => closeSidebar()}
-                className="rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-900"
+                className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-900"
               >
+                <Home className="size-4" />
                 Înapoi la quiz
               </Link>
             )}

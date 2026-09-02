@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import dynamic from "next/dynamic"
+import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import { ChevronDown } from "lucide-react"
 import {
   fetchAccessibleExams,
+  fetchPublicExamById,
   fetchQuestionsBySource,
   getAvailableQuestionCount,
   recordAnswerHistory,
@@ -59,6 +61,8 @@ function formatElapsed(ms: number) {
 
 export function QuizInterface({ banner }: { banner?: ReactNode }) {
   const supabase = getSupabaseBrowserClient()
+  // Deep link from the exam library: /?examen=<id>.
+  const requestedExamParam = useSearchParams().get("examen")
   const [status, setStatus] = useState<QuizStatus>("setup")
   const [mode, setMode] = useState<QuizMode>("simulation")
   const [practiceSource, setPracticeSource] = useState<PracticeSource>("all")
@@ -115,6 +119,9 @@ export function QuizInterface({ banner }: { banner?: ReactNode }) {
   // when the timer / finalize swept up any leftovers.
   const recordedSimulationRef = useRef<Set<string>>(new Set())
   const practiceSourceDropdownRef = useRef<HTMLDivElement | null>(null)
+  // Exam reached through `?examen=<id>` that isn't part of the user's own list.
+  // Selecting it must not be written to localStorage.
+  const transientExamIdRef = useRef<number | null>(null)
 
   questionsRef.current = questions
   answersRef.current = answers
@@ -253,7 +260,26 @@ export function QuizInterface({ banner }: { banner?: ReactNode }) {
 
       const exams = await fetchAccessibleExams(supabase, activeUserId)
 
-      if (exams.length === 0) {
+      const requestedExamId = Number(requestedExamParam)
+      const isRequestedIdValid = Number.isInteger(requestedExamId) && requestedExamId > 0
+      const isRequestedAccessible =
+        isRequestedIdValid && exams.some((option) => option.id === requestedExamId)
+
+      // A deep link to a public exam the user hasn't favourited is absent from
+      // the accessible list, so resolve it with one targeted lookup. Any
+      // failure falls through to the usual selection, silently.
+      let deepLinkExam: ExamOption | null = null
+      if (isRequestedIdValid && !isRequestedAccessible) {
+        try {
+          deepLinkExam = await fetchPublicExamById(supabase, requestedExamId)
+        } catch (error) {
+          console.error("Failed to resolve the deep-linked exam:", error)
+        }
+      }
+
+      const options = deepLinkExam ? [...exams, deepLinkExam] : exams
+
+      if (options.length === 0) {
         setExamOptions([])
         setSelectedExamId(null)
         setAvailabilityMessage("Nu ai acces la niciun examen momentan. Contactează administratorul.")
@@ -261,15 +287,28 @@ export function QuizInterface({ banner }: { banner?: ReactNode }) {
         return
       }
 
-      setExamOptions(exams)
+      setExamOptions(options)
+
+      if (deepLinkExam) {
+        // A one-off visit: kept out of localStorage so it doesn't resurrect
+        // itself on every later load. Favourites persist as usual.
+        transientExamIdRef.current = deepLinkExam.id
+        setSelectedExamId(deepLinkExam.id)
+        await refreshAvailablePracticeCount(practiceSource, deepLinkExam.id, activeUserId)
+        return
+      }
 
       const persistedExamId = Number(window.localStorage.getItem(SELECTED_EXAM_STORAGE_KEY))
       const hasPersistedExam =
         Number.isFinite(persistedExamId) &&
         persistedExamId > 0 &&
-        exams.some((option) => option.id === persistedExamId)
+        options.some((option) => option.id === persistedExamId)
 
-      const nextExamId = hasPersistedExam ? persistedExamId : exams[0].id
+      const nextExamId = isRequestedAccessible
+        ? requestedExamId
+        : hasPersistedExam
+          ? persistedExamId
+          : options[0].id
 
       setSelectedExamId(nextExamId)
       window.localStorage.setItem(SELECTED_EXAM_STORAGE_KEY, String(nextExamId))
@@ -281,10 +320,11 @@ export function QuizInterface({ banner }: { banner?: ReactNode }) {
       setExamOptions([])
       setAvailablePracticeCount(0)
     })
-  }, [supabase, refreshAvailablePracticeCount])
+  }, [supabase, refreshAvailablePracticeCount, requestedExamParam])
 
   useEffect(() => {
     if (selectedExamId == null) return
+    if (selectedExamId === transientExamIdRef.current) return
     window.localStorage.setItem(SELECTED_EXAM_STORAGE_KEY, String(selectedExamId))
   }, [selectedExamId])
 
