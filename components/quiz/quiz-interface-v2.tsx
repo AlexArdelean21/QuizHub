@@ -19,7 +19,7 @@ import {
 } from "@/lib/quiz/fetch-random-intrebari"
 import { areAnswerSetsEqual, type ExamSummary, type PracticeSource, type QuizQuestion } from "@/lib/quiz/types"
 import type { MistakeEntry } from "./mistake-review"
-import { ExamSelector } from "@/components/statistici/exam-selector"
+import { ExamPicker } from "@/components/quiz/ExamPicker"
 
 const QuizResults = dynamic(() => import("./quiz-results").then((m) => m.QuizResults))
 const MistakeReview = dynamic(() => import("./mistake-review").then((m) => m.MistakeReview))
@@ -679,21 +679,14 @@ export function QuizInterface({ banner }: { banner?: ReactNode }) {
             </div>
             <div className="flex flex-col gap-6 px-6 pb-6 pt-2 md:px-8 md:pb-8">
               <div className="rounded-xl border border-border bg-secondary/30 p-5">
-                <label htmlFor="exam-id" className="text-sm font-medium text-foreground">Examen</label>
-                {noExamAccess ? (
-                  <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
-                    Nu ai acces la niciun examen momentan. Contactează administratorul.
-                  </p>
-                ) : (
-                  <div className="mt-2">
-    <ExamSelector
-      exams={examOptions}
-      selectedId={selectedExamId ?? examOptions[0]?.id ?? 0}
-      onChange={handleExamChange}
-      className="!w-full sm:!w-full"
-    />
-                  </div>
-                )}
+                <p className="text-sm font-medium text-foreground">Examen</p>
+                <div className="mt-2">
+                  <ExamPicker
+                    options={examOptions}
+                    value={selectedExamId}
+                    onChange={handleExamChange}
+                  />
+                </div>
               </div>
               <div className="grid gap-4 md:grid-cols-2">
                 <button type="button" data-testid="quiz-mode-simulation" onClick={() => setMode("simulation")} className={`card-hover rounded-xl border-2 p-5 text-left transition-all duration-200 ${mode === "simulation" ? "border-primary bg-primary/5" : "border-border bg-secondary/30 hover:border-primary/40"}`}>
