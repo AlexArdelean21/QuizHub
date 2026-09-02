@@ -45,6 +45,12 @@ export type IntrebareRow = {
 
 export type PracticeSource = "all" | "bookmarked" | "wrong" | "new"
 
+/**
+ * Where an exam comes from: an organization (`examene.org_id IS NOT NULL`),
+ * the user's own library, or the public catalogue (`examene.is_public`).
+ */
+export type ExamCategory = "org" | "personal" | "public"
+
 export type ExamSummary = {
   id: number
   name: string
@@ -53,7 +59,11 @@ export type ExamSummary = {
   /** Max number of variants admins can configure as a default in the rules. */
   varianteRaspuns: number
   durataMinute: number
-  /** True when the exam has no owning organization (examene.org_id IS NULL). */
+  category: ExamCategory
+  /**
+   * @deprecated Use `category === "personal"`. Public exams also have
+   * `org_id IS NULL`, so this flag can no longer distinguish them on its own.
+   */
   isPersonal: boolean
 }
 

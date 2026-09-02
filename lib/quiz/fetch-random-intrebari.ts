@@ -6,12 +6,15 @@ import {
   OPTION_IDS,
   OPTION_LABELS,
   type AnswerId,
+  type ExamCategory,
   type ExamSummary,
   type IntrebareRow,
   type PracticeSource,
   type QuizOption,
   type QuizQuestion,
 } from "./types"
+
+export type { ExamCategory } from "./types"
 
 function shuffleInPlace<T>(items: T[]): void {
   for (let i = items.length - 1; i > 0; i--) {
@@ -279,6 +282,21 @@ function isValidId(value: unknown): value is number {
   return Number.isFinite(n) && n > 0
 }
 
+/** Visibility ordering used by the exam selector: org first, public last. */
+const CATEGORY_RANK: Record<ExamCategory, number> = {
+  org: 0,
+  personal: 1,
+  public: 2,
+}
+
+// Checked most-specific first: a public exam always has org_id IS NULL, so the
+// `is_public` test has to win over the ownership test.
+function deriveCategory(row: { is_public?: unknown; org_id?: unknown }): ExamCategory {
+  if (row.is_public === true) return "public"
+  if (row.org_id != null) return "org"
+  return "personal"
+}
+
 function mapExamSummary(row: {
   id: unknown
   nume_examen?: unknown
@@ -288,11 +306,14 @@ function mapExamSummary(row: {
   durata_minute?: unknown
   timp_alocat_minute?: unknown
   org_id?: unknown
+  is_public?: unknown
+  is_org_wide?: unknown
 }): ExamSummary | null {
   const id = Number(row.id)
   if (!Number.isFinite(id) || id <= 0) return null
   const fallbackDuration = Number(row.timp_alocat_minute)
   const durata = Number(row.durata_minute)
+  const category = deriveCategory(row)
   return {
     id,
     name: String(row.nume_examen ?? `Examen ${id}`),
@@ -304,7 +325,8 @@ function mapExamSummary(row: {
       : Number.isFinite(fallbackDuration) && fallbackDuration > 0
         ? fallbackDuration
         : 30,
-    isPersonal: row.org_id == null,
+    category,
+    isPersonal: category === "personal",
   }
 }
 
@@ -343,7 +365,7 @@ export async function fetchAccessibleExams(
   const orgId = profile?.org_id ? String(profile.org_id) : null
 
   const selectColumns =
-    "id, nume_examen, prag_trecere, intrebari_simulare, variante_raspuns, durata_minute, timp_alocat_minute, org_id, creator_user_id"
+    "id, nume_examen, prag_trecere, intrebari_simulare, variante_raspuns, durata_minute, timp_alocat_minute, org_id, creator_user_id, is_public, is_org_wide"
 
   const orderById = { ascending: true } as const
 
@@ -356,7 +378,9 @@ export async function fetchAccessibleExams(
         if (!acc.some((exam) => exam.id === current.id)) acc.push(current)
         return acc
       }, [])
-      .sort((a, b) => Number(a.isPersonal) - Number(b.isPersonal) || a.id - b.id)
+      .sort(
+        (a, b) => CATEGORY_RANK[a.category] - CATEGORY_RANK[b.category] || a.id - b.id
+      )
 
   if (isSuperAdminRole(role)) {
     const { data, error } = await supabase
@@ -404,11 +428,49 @@ export async function fetchAccessibleExams(
     return (data ?? []) as Array<Record<string, unknown>>
   }
 
-  const [accessExamRows, personalRows] = await Promise.all([
+  // Org-wide exams need no `acces_examene` grant: every member of the owning
+  // organization sees them.
+  const fetchOrgWideExams = async (): Promise<Array<Record<string, unknown>>> => {
+    if (!orgId) return []
+    const { data, error } = await supabase
+      .from("examene")
+      .select(selectColumns)
+      .eq("org_id", orgId)
+      .eq("is_org_wide", true)
+      .order("id", orderById)
+    if (error) throw new Error(error.message)
+    return (data ?? []) as Array<Record<string, unknown>>
+  }
+
+  const [accessExamRows, personalRows, orgWideRows] = await Promise.all([
     fetchAccessExams(),
     fetchPersonalExams(supabase, userId, selectColumns),
+    fetchOrgWideExams(),
   ])
-  return safeMap([...accessExamRows, ...personalRows])
+  return safeMap([...accessExamRows, ...personalRows, ...orgWideRows])
+}
+
+const PUBLIC_EXAM_SELECT_COLUMNS =
+  "id, nume_examen, prag_trecere, intrebari_simulare, variante_raspuns, durata_minute, timp_alocat_minute, org_id, creator_user_id, is_public, is_org_wide, categorie"
+
+/**
+ * The public catalogue, readable by anyone through the `examene_public_select`
+ * RLS policy. Grouped by `categorie` (uncategorized last), then alphabetically.
+ */
+export async function fetchPublicExams(
+  supabase: SupabaseClient
+): Promise<ExamSummary[]> {
+  const { data, error } = await supabase
+    .from("examene")
+    .select(PUBLIC_EXAM_SELECT_COLUMNS)
+    .eq("is_public", true)
+    .order("categorie", { ascending: true, nullsFirst: false })
+    .order("nume_examen", { ascending: true })
+
+  if (error) throw new Error(error.message)
+  return ((data ?? []) as unknown as Array<Record<string, unknown>>)
+    .map((row) => mapExamSummary(row as Parameters<typeof mapExamSummary>[0]))
+    .filter((value): value is ExamSummary => value !== null)
 }
 
 export async function fetchDistinctExamIds(

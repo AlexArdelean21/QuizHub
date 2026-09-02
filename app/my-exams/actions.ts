@@ -367,11 +367,15 @@ export async function createPersonalExam(data: {
   const maxPersonal = Number(profile.max_examene_personale ?? 0)
 
   // Count existing personal exams (scoped by creator, org_id IS NULL) server-side.
+  // Public exams are excluded because they are also org-less — they must not
+  // consume the personal quota. Mirrors the `enforce_personal_exam_limit`
+  // trigger; a mismatch here would reject the insert before the trigger runs.
   const { count, error: countError } = await admin
     .from("examene")
     .select("id", { count: "exact", head: true })
     .eq("creator_user_id", user.id)
     .is("org_id", null)
+    .eq("is_public", false)
   if (countError) {
     return { success: false, error: "Nu s-a putut verifica numărul de examene." }
   }
