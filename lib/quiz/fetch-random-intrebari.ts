@@ -352,11 +352,13 @@ const EXAM_SELECT_COLUMNS =
   "id, nume_examen, prag_trecere, intrebari_simulare, variante_raspuns, durata_minute, timp_alocat_minute, org_id, creator_user_id, is_public, is_org_wide"
 
 /**
- * Public exams the user has favourited, plus the showcase exam that is offered
- * to everyone. Two round-trips at most: the favourite ids, then a single
- * filtered fetch — never one query per favourite.
+ * The public exams the user has favourited. Favourites are the only way a
+ * public exam reaches the selector — the showcase exam included, since a
+ * signup trigger seeds it as an ordinary favourite row. Two round-trips at
+ * most: the favourite ids, then a single fetch — never one query per
+ * favourite.
  */
-async function fetchFavoriteAndShowcaseExams(
+async function fetchFavoriteExams(
   supabase: SupabaseClient,
   userId: string,
   selectColumns: string
@@ -371,20 +373,17 @@ async function fetchFavoriteAndShowcaseExams(
     ...new Set((favoriteRows ?? []).map((row) => Number(row.examen_id)).filter(isValidId)),
   ]
 
-  const base = supabase
+  if (favoriteIds.length === 0) return []
+
+  // `is_public` still applies: a favourite row outlives its exam being
+  // unpublished, and such an exam must not reappear in the selector.
+  const { data, error } = await supabase
     .from("examene")
     .select(selectColumns)
     .eq("is_public", true)
+    .in("id", favoriteIds)
     .order("id", { ascending: true })
 
-  // Interpolating the ids is safe: each one passed `isValidId`, so it is a
-  // finite positive number and cannot carry filter syntax.
-  const query =
-    favoriteIds.length > 0
-      ? base.or(`is_showcase.eq.true,id.in.(${favoriteIds.join(",")})`)
-      : base.eq("is_showcase", true)
-
-  const { data, error } = await query
   if (error) throw new Error(error.message)
   return (data ?? []) as unknown as Array<Record<string, unknown>>
 }
@@ -437,7 +436,7 @@ export async function fetchAccessibleExams(
     const [orgResult, personalRows, favoriteRows] = await Promise.all([
       orgQuery,
       fetchPersonalExams(supabase, userId, selectColumns),
-      fetchFavoriteAndShowcaseExams(supabase, userId, selectColumns),
+      fetchFavoriteExams(supabase, userId, selectColumns),
     ])
     if (orgResult.error) throw new Error(orgResult.error.message)
     const orgRows = (orgResult.data ?? []) as Array<Record<string, unknown>>
@@ -487,7 +486,7 @@ export async function fetchAccessibleExams(
     fetchAccessExams(),
     fetchPersonalExams(supabase, userId, selectColumns),
     fetchOrgWideExams(),
-    fetchFavoriteAndShowcaseExams(supabase, userId, selectColumns),
+    fetchFavoriteExams(supabase, userId, selectColumns),
   ])
   return safeMap([...accessExamRows, ...personalRows, ...orgWideRows, ...favoriteRows])
 }

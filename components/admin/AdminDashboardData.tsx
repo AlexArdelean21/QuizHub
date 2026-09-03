@@ -89,7 +89,7 @@ export async function AdminDashboardData({ context }: Props) {
   let exameneQuery = adminSupabase
     .from("examene")
     .select(
-      "id, nume_examen, org_id, prag_trecere, intrebari_simulare, variante_raspuns, durata_minute, organizatii(id, nume)"
+      "id, nume_examen, org_id, prag_trecere, intrebari_simulare, variante_raspuns, durata_minute, is_org_wide, is_public, organizatii(id, nume)"
     )
     .order("nume_examen", { ascending: true })
   if (orgFilter) {
@@ -181,6 +181,8 @@ export async function AdminDashboardData({ context }: Props) {
       intrebari_simulare: Number(exam.intrebari_simulare ?? 25),
       variante_raspuns: Number(exam.variante_raspuns ?? 3),
       durata_minute: Number(exam.durata_minute ?? 30),
+      is_org_wide: Boolean(exam.is_org_wide),
+      is_public: Boolean(exam.is_public),
     }
   })
 

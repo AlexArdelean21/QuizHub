@@ -235,6 +235,10 @@ export type AdminExamRow = {
   intrebari_simulare: number
   variante_raspuns: number
   durata_minute: number
+  /** True = every member of the owning org has access, without an
+   *  `acces_examene` allocation. Only meaningful when `org_id` is set. */
+  is_org_wide: boolean
+  is_public: boolean
 }
 
 export type AdminOrganizationRow = {
@@ -926,6 +930,7 @@ export async function importExamFromJson(formData: FormData) {
   const hasExistingExamenId = existingExamenIdRaw != null
   const examName = String(formData.get("examName") ?? "").trim()
   const explicitOrgId = String(formData.get("orgId") ?? "").trim() || null
+  const requestedOrgWide = String(formData.get("isOrgWide") ?? "") === "true"
 
   const jsonContent = String(formData.get("jsonContent") ?? "").trim()
   if (!jsonContent) throw new Error("Conținutul JSON lipsește.")
@@ -967,7 +972,13 @@ export async function importExamFromJson(formData: FormData) {
 
     const { data: createdExam, error: createExamError } = await actorSupabase
       .from("examene")
-      .insert({ nume_examen: examName, org_id: targetOrgId })
+      .insert({
+        nume_examen: examName,
+        org_id: targetOrgId,
+        // Meaningless without an owning organisation, so it is forced off for
+        // the global exams a super_admin can create.
+        is_org_wide: targetOrgId ? requestedOrgWide : false,
+      })
       .select("id")
       .single()
 
@@ -1087,6 +1098,7 @@ export async function importExamFromExcel(formData: FormData) {
   const hasExistingExamenId = existingExamenIdRaw != null
   const examName = String(formData.get("examName") ?? "").trim()
   const explicitOrgId = String(formData.get("orgId") ?? "").trim() || null
+  const requestedOrgWide = String(formData.get("isOrgWide") ?? "") === "true"
 
   const file = getFileFromFormData(formData)
   const buffer = Buffer.from(await file.arrayBuffer())
@@ -1136,7 +1148,13 @@ export async function importExamFromExcel(formData: FormData) {
 
     const { data: createdExam, error: createExamError } = await actorSupabase
       .from("examene")
-      .insert({ nume_examen: examName, org_id: targetOrgId })
+      .insert({
+        nume_examen: examName,
+        org_id: targetOrgId,
+        // Meaningless without an owning organisation, so it is forced off for
+        // the global exams a super_admin can create.
+        is_org_wide: targetOrgId ? requestedOrgWide : false,
+      })
       .select("id")
       .single()
 
@@ -1362,6 +1380,68 @@ export async function updateExamRules(examId: number, rules: ExamRulesPayload) {
 
   revalidatePath("/admin")
   return { examId }
+}
+
+/** Same answer for a missing exam and for one owned by another tenant, so the
+ *  response cannot be used to enumerate exam ids across organisations. */
+const EXAM_OUT_OF_REACH = "Examenul selectat nu există."
+const ORG_WIDE_NOT_APPLICABLE =
+  "Doar examenele unei organizații pot avea acces extins."
+
+/**
+ * Opens an org exam to every member of its organisation, or closes it back to
+ * `acces_examene` allocations. Never touches `acces_examene`: the existing
+ * allocations stay and become effective again when the flag is turned off.
+ */
+export async function setExamOrgWide(
+  examId: number,
+  isOrgWide: boolean
+): Promise<ActionResult> {
+  try {
+    const context = await assertAdminActor()
+    if (!context.isSuperAdmin && !context.isOrgAdmin) {
+      return { error: "Acces interzis." }
+    }
+
+    if (!Number.isFinite(examId) || examId <= 0) {
+      return { error: "ID-ul examenului este invalid." }
+    }
+
+    const adminSupabase = getAdminServiceClient()
+    const { data, error } = await adminSupabase
+      .from("examene")
+      .select("id, org_id, is_public")
+      .eq("id", examId)
+      .maybeSingle()
+
+    if (error) return { error: error.message }
+    if (!data) return { error: EXAM_OUT_OF_REACH }
+
+    const examOrgId = data.org_id ? String(data.org_id) : null
+    if (context.scopedOrgId && examOrgId !== context.scopedOrgId) {
+      return { error: EXAM_OUT_OF_REACH }
+    }
+
+    // The flag only means something for exams owned by an organisation.
+    // Personal exams (org_id NULL) and public ones have no member list.
+    if (examOrgId === null || Boolean(data.is_public)) {
+      return { error: ORG_WIDE_NOT_APPLICABLE }
+    }
+
+    const { error: updateError } = await adminSupabase
+      .from("examene")
+      .update({ is_org_wide: Boolean(isOrgWide) })
+      .eq("id", examId)
+
+    if (updateError) return { error: updateError.message }
+
+    revalidatePath("/admin")
+    revalidatePath("/admin/global")
+    revalidatePath("/")
+    return { error: null }
+  } catch (error) {
+    return toActionError(error)
+  }
 }
 
 export async function deleteExam(examId: number) {

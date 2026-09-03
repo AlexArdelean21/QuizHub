@@ -24,6 +24,7 @@ import {
   importExamFromJson,
   previewExamImport,
   previewExamImportJson,
+  setExamOrgWide,
   updateExam,
   updateExamRules,
   type AdminExamRow,
@@ -40,6 +41,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { ModalPortal } from "@/components/ui/modal-portal"
+import { Switch } from "@/components/ui/switch"
 import { QuestionEditorModal } from "@/components/admin/QuestionEditorModal"
 import { DocumentAiImportModal } from "@/components/admin/DocumentAiImportModal"
 import { useDocumentAiCredite } from "@/components/admin/DocumentAiCreditContext"
@@ -85,6 +87,7 @@ export function ExamManagement({
   const [examName, setExamName] = useState("")
   const [file, setFile] = useState<File | null>(null)
   const [createOrgId, setCreateOrgId] = useState<string | null>(defaultOrgId)
+  const [createOrgWide, setCreateOrgWide] = useState(false)
   const [previewRows, setPreviewRows] = useState<PreviewRow[]>([])
   const [previewSummary, setPreviewSummary] = useState<PreviewSummary | null>(null)
   const [previewSkippedRows, setPreviewSkippedRows] = useState(0)
@@ -109,6 +112,7 @@ export function ExamManagement({
     durata_minute: 30,
   })
   const [settingsError, setSettingsError] = useState<string | null>(null)
+  const [settingsOrgWide, setSettingsOrgWide] = useState(false)
 
   const [uploadMode, setUploadMode] = useState<"excel" | "json" | "text">("excel")
   const [jsonText, setJsonText] = useState("")
@@ -127,9 +131,21 @@ export function ExamManagement({
   const [savingUpdate, startSavingUpdateTransition] = useTransition()
   const [deleting, startDeleteTransition] = useTransition()
   const [savingRules, startSavingRulesTransition] = useTransition()
+  const [togglingOrgWide, startOrgWideTransition] = useTransition()
   const [collapsed, setCollapsed] = useState(true)
 
   const isBusy = previewing || creating || savingUpdate || deleting || savingRules
+
+  /**
+   * `is_org_wide` only applies to exams owned by an organisation. An org_admin
+   * always creates inside their own org; a super_admin may pick "no org", and
+   * in that case the control is not rendered at all.
+   */
+  const createBelongsToOrg = isSuperAdmin ? createOrgId !== null : true
+  const settingsBelongsToOrg =
+    settingsTargetExam !== null &&
+    settingsTargetExam.org_id !== null &&
+    !settingsTargetExam.is_public
   const canPreview =
     !isBusy &&
     (uploadMode === "excel"
@@ -244,6 +260,7 @@ export function ExamManagement({
     setShowTextGuide(false)
     setCreateError(null)
     setPreviewInfo(null)
+    setCreateOrgWide(false)
   }
 
   const handlePreview = () => {
@@ -299,6 +316,11 @@ export function ExamManagement({
     })
   }
 
+  const applyCreateFlags = (formData: FormData) => {
+    if (isSuperAdmin && createOrgId) formData.set("orgId", createOrgId)
+    if (createBelongsToOrg && createOrgWide) formData.set("isOrgWide", "true")
+  }
+
   const handleCreateExamJson = () => {
     if (!jsonText.trim() || !examName.trim()) return
     startCreateTransition(() => {
@@ -307,7 +329,7 @@ export function ExamManagement({
           const formData = new FormData()
           formData.set("jsonContent", jsonText.trim())
           formData.set("examName", examName.trim())
-          if (isSuperAdmin && createOrgId) formData.set("orgId", createOrgId)
+          applyCreateFlags(formData)
           const result = await importExamFromJson(formData)
           setCreateError(null)
           handleClosePopup()
@@ -370,7 +392,7 @@ export function ExamManagement({
           const formData = new FormData()
           formData.set("jsonContent", JSON.stringify(parsed))
           formData.set("examName", examName.trim())
-          if (isSuperAdmin && createOrgId) formData.set("orgId", createOrgId)
+          applyCreateFlags(formData)
           const result = await importExamFromJson(formData)
           setCreateError(null)
           handleClosePopup()
@@ -395,9 +417,7 @@ export function ExamManagement({
           const formData = new FormData()
           formData.set("file", file)
           formData.set("examName", examName.trim())
-          if (isSuperAdmin && createOrgId) {
-            formData.set("orgId", createOrgId)
-          }
+          applyCreateFlags(formData)
           const result = await importExamFromExcel(formData)
           setCreateError(null)
           handleClosePopup()
@@ -430,7 +450,31 @@ export function ExamManagement({
       intrebari_simulare: exam.intrebari_simulare,
       durata_minute: exam.durata_minute,
     })
+    setSettingsOrgWide(exam.is_org_wide)
     setSettingsError(null)
+  }
+
+  /** Saves on its own, independently of the rules form's "Salvează" button. */
+  const handleToggleOrgWide = (exam: AdminExamRow, next: boolean) => {
+    const previous = settingsOrgWide
+    setSettingsOrgWide(next)
+    startOrgWideTransition(() => {
+      void (async () => {
+        const result = await setExamOrgWide(exam.id, next)
+        if (result.error) {
+          setSettingsOrgWide(previous)
+          pushToast({ type: "error", message: result.error })
+          return
+        }
+        pushToast({
+          type: "success",
+          message: next
+            ? "Examenul este acum disponibil tuturor membrilor organizației."
+            : "Accesul extins a fost dezactivat.",
+        })
+        router.refresh()
+      })()
+    })
   }
 
   const handleSaveSettings = () => {
@@ -748,6 +792,9 @@ export function ExamManagement({
                           <span className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 dark:border-slate-700 dark:bg-slate-800">
                             prag {exam.prag_trecere}
                           </span>
+                          {exam.is_org_wide ? (
+                            <Badge variant="secondary">Acces org</Badge>
+                          ) : null}
                         </div>
                       </td>
                       <td className="px-4 py-3 text-right">
@@ -793,6 +840,7 @@ export function ExamManagement({
                     <span className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 dark:border-slate-700 dark:bg-slate-800">
                       prag {exam.prag_trecere}
                     </span>
+                    {exam.is_org_wide ? <Badge variant="secondary">Acces org</Badge> : null}
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5 pt-1">
                     {renderExamActions(exam, "size-3")}
@@ -1005,6 +1053,29 @@ export function ExamManagement({
                     ))}
                   </select>
                 </label>
+              )}
+
+              {createBelongsToOrg && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
+                  <div className="flex items-start justify-between gap-3">
+                    <label
+                      htmlFor="create-org-wide"
+                      className="text-sm font-medium text-slate-800 dark:text-slate-100"
+                    >
+                      Acces pentru toți membrii organizației
+                    </label>
+                    <Switch
+                      id="create-org-wide"
+                      checked={createOrgWide}
+                      onCheckedChange={setCreateOrgWide}
+                      disabled={isBusy}
+                    />
+                  </div>
+                  <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+                    Toți membrii organizației vor putea da acest examen, fără alocare
+                    individuală.
+                  </p>
+                </div>
               )}
 
               <div>
@@ -1685,6 +1756,35 @@ c) 100 Hz`}
               </label>
             </div>
             {/* variante_raspuns: deprecat la nivel de UI — coloana rămâne în DB dar nu mai e editabilă. */}
+
+            {settingsBelongsToOrg ? (
+              <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
+                <div className="flex items-start justify-between gap-3">
+                  <label
+                    htmlFor="settings-org-wide"
+                    className="text-sm font-medium text-slate-800 dark:text-slate-100"
+                  >
+                    Acces pentru toți membrii organizației
+                  </label>
+                  <Switch
+                    id="settings-org-wide"
+                    checked={settingsOrgWide}
+                    onCheckedChange={(next) =>
+                      handleToggleOrgWide(settingsTargetExam, next)
+                    }
+                    disabled={togglingOrgWide || savingRules}
+                  />
+                </div>
+                <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+                  Toți membrii organizației vor putea da acest examen, fără alocare
+                  individuală.
+                </p>
+                <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+                  Alocările individuale rămân salvate și redevin active dacă dezactivezi
+                  această opțiune.
+                </p>
+              </div>
+            ) : null}
 
             {settingsError ? (
               <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-400">
