@@ -70,7 +70,6 @@ export function UserManagement({
           </h2>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             Administrează utilizatorii și accesul la examene.
-            {!isSuperAdmin && " Modificările de rol se fac din panoul Super Admin."}
           </p>
         </div>
         <p className="text-xs text-slate-500 dark:text-slate-400">
