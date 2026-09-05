@@ -6,7 +6,7 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 // Shared CTA classes so the primary actions across the quiz flow
-// ("Începe quiz-ul", "Vezi greșelile", "Gata", "Înapoi la rezultate", ...)
+// ("Începe quiz-ul", "Vezi greșelile", "Gata", ...)
 // have identical height, radius, padding and color treatment in both
 // light and dark mode. Keep these in one place to avoid drift.
 export const PRIMARY_CTA_CLASS =

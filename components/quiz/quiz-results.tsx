@@ -15,8 +15,9 @@ type QuizResultsProps = {
   finishedByTimeout: boolean
   onRestart: () => void
   /**
-   * Only meaningful for practice mode. When provided, renders the
-   * "Vezi greșelile" CTA that opens the mistake review.
+   * When provided alongside a non-zero `mistakeCount`, renders the
+   * "Vezi greșelile" CTA that opens the mistake review. Available in both
+   * practice and simulation mode.
    */
   onViewMistakes?: () => void
   mistakeCount?: number

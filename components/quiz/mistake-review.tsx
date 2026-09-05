@@ -1,6 +1,6 @@
 "use client"
 
-import { ArrowLeft } from "lucide-react"
+import { RotateCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
@@ -14,17 +14,22 @@ export type MistakeEntry = {
 type MistakeReviewProps = {
   mistakes: MistakeEntry[]
   onBack: () => void
+  onRestart: () => void
 }
 
 // Bento-style breakdown of every question the user missed during the
-// practice session. Each card shows the prompt, the user's choice (muted
-// red) and the correct answer(s) (muted green) so the user can review what
-// went wrong at a glance.
+// session — practice or simulation alike. Each card shows the prompt, the
+// user's choice (muted red) and the correct answer(s) (muted green) so the
+// user can review what went wrong at a glance.
 //
 // The list is a single column constrained to ~3xl so a lone mistake doesn't
 // look stranded on a wide screen and the reading width stays comfortable
 // no matter the count.
-export function MistakeReview({ mistakes, onBack }: MistakeReviewProps) {
+//
+// This is the terminal screen of a session: both CTAs start a fresh quiz
+// rather than walking back to the results card. `onBack` stays in the props
+// for callers that still pass it, but nothing in the UI triggers it.
+export function MistakeReview({ mistakes, onRestart }: MistakeReviewProps) {
   return (
     <div className="min-h-screen bg-background">
       <main className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 py-12 sm:px-6 md:py-16 lg:px-8 lg:py-20">
@@ -42,11 +47,11 @@ export function MistakeReview({ mistakes, onBack }: MistakeReviewProps) {
               <Button
                 type="button"
                 variant="outline"
-                onClick={onBack}
+                onClick={onRestart}
                 className="h-10 rounded-xl border-2 text-sm font-medium"
               >
-                <ArrowLeft className="size-4" />
-                Înapoi la rezultate
+                <RotateCcw className="size-4" />
+                Începe alt quiz
               </Button>
             </div>
             <p className="text-sm text-muted-foreground">
@@ -59,6 +64,19 @@ export function MistakeReview({ mistakes, onBack }: MistakeReviewProps) {
               {mistakes.map((entry, idx) => (
                 <MistakeCard key={entry.question.id} entry={entry} number={idx + 1} />
               ))}
+            </div>
+            {/* Repeated at the foot of the list so a long review doesn't force
+                a scroll back to the header to move on. */}
+            <div className="mt-8 flex justify-center">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onRestart}
+                className="h-10 rounded-xl border-2 text-sm font-medium"
+              >
+                <RotateCcw className="size-4" />
+                Începe alt quiz
+              </Button>
             </div>
           </CardContent>
         </Card>

@@ -93,9 +93,10 @@ export function QuizInterface({ banner }: { banner?: ReactNode }) {
   const [streakBump, setStreakBump] = useState(false)
   const [resultStats, setResultStats] = useState<ResultStats | null>(null)
   const [isExitModalOpen, setIsExitModalOpen] = useState(false)
-  // Practice-mode only: every question the user got wrong during the current
-  // session. Populated on commit (single-answer auto-lock or "Verifică") and
-  // surfaced via the "Vezi greșelile" review screen.
+  // Every question the user got wrong during the current session. In practice
+  // it's populated on commit (single-answer auto-lock or "Verifică"); in
+  // simulation it's built in one sweep by `finalizeQuiz`. Either way it backs
+  // the "Vezi greșelile" review screen.
   const [wrongQuestions, setWrongQuestions] = useState<MistakeEntry[]>([])
 
   const selectedExam = useMemo(
@@ -193,6 +194,19 @@ export function QuizInterface({ banner }: { banner?: ReactNode }) {
       0
     )
     const wrong = Math.max(0, qs.length - correct)
+
+    // Practice mode accumulates mistakes incrementally on each commit, but a
+    // simulation only reveals anything at the end — so build the review list
+    // here from the final answer map. Unanswered questions count as mistakes
+    // and render as "Niciun răspuns selectat".
+    if (currentMode === "simulation") {
+      setWrongQuestions(
+        qs
+          .filter((q) => !areAnswerSetsEqual(ans[q.id] ?? [], q.correctAnswers))
+          .map((q) => ({ question: q, userSelection: (ans[q.id] ?? []).slice() }))
+      )
+    }
+
     const finishedAt = Date.now()
     const elapsedMs = finishedAt - startedAtRef.current
     setResultStats({ mode: currentMode, correct, wrong, total: qs.length, elapsedMs, timedOut: opts.timedOut })
@@ -640,12 +654,13 @@ export function QuizInterface({ banner }: { banner?: ReactNode }) {
       <MistakeReview
         mistakes={wrongQuestions}
         onBack={() => setStatus("results")}
+        onRestart={resetToSetup}
       />
     )
   }
 
   if (status === "results" && resultStats) {
-    const canViewMistakes = resultStats.mode === "practice" && wrongQuestions.length > 0
+    const canViewMistakes = wrongQuestions.length > 0
     return (
       <QuizResults
         mode={resultStats.mode}
