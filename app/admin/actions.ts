@@ -1715,10 +1715,19 @@ export async function getInviteTokens(orgId: string): Promise<InviteTokenRow[]> 
   if (!context.isSuperAdmin && context.scopedOrgId !== orgId) return []
   const actorSupabase = await createSupabaseServerClient()
 
+  // Display window: live links always, plus anything used or expired in the
+  // last 7 days. `expires_at > cutoff` covers live links (expires_at > now)
+  // and recently-expired ones (cutoff < expires_at <= now) in a single
+  // comparison. A NULL `used_at` can never satisfy the second clause, so used
+  // links need no separate null check. Timestamps are double-quoted because
+  // PostgREST treats "." and ":" as reserved characters inside or().
+  const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+
   const { data, error } = await actorSupabase
     .from("invite_tokens")
     .select("id, token, expires_at, used_at, used_by, created_at")
     .eq("org_id", orgId)
+    .or(`expires_at.gt."${cutoff}",used_at.gt."${cutoff}"`)
     .order("created_at", { ascending: false })
 
   if (error) throw new Error(error.message)

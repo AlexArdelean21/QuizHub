@@ -1,7 +1,17 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
-import { Check, Copy, Link2, Lock, Plus, Trash2 } from "lucide-react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import {
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  Link2,
+  Lock,
+  Plus,
+  Trash2,
+} from "lucide-react"
 import {
   generateInviteToken,
   getInviteTokens,
@@ -9,13 +19,28 @@ import {
   toggleOrgInviteLinks,
   type InviteTokenRow,
 } from "@/app/admin/actions"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 
 type InviteManagementProps = {
   orgId: string
   inviteLinksEnabled: boolean
   isSuperAdmin: boolean
+  /**
+   * Renders the section header as a collapse toggle. Opt-in because the
+   * super-admin org list already nests this component inside its own
+   * expandable row, where a second collapse layer would mean two clicks to
+   * reach the table.
+   */
+  collapsible?: boolean
+  /** Shown in the header copy so super admins can confirm the target org. */
+  orgName?: string
 }
+
+const PAGE_SIZE = 10
+
+/** Above this many live links the header nudges the admin to revoke some. */
+const ACTIVE_LINKS_NUDGE_THRESHOLD = 4
 
 type Toast = { type: "success" | "error"; message: string } | null
 
@@ -52,6 +77,8 @@ export function InviteManagement({
   orgId,
   inviteLinksEnabled,
   isSuperAdmin,
+  collapsible = false,
+  orgName,
 }: InviteManagementProps) {
   const [tokens, setTokens] = useState<InviteTokenRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -60,6 +87,29 @@ export function InviteManagement({
   const [toast, setToast] = useState<Toast>(null)
   const [inviteEnabled, setInviteEnabled] = useState(inviteLinksEnabled)
   const [togglingEnabled, setTogglingEnabled] = useState(false)
+  // null = the admin hasn't toggled yet, so the open state still follows the
+  // data (see `isOpen`). Any explicit click pins it.
+  const [openOverride, setOpenOverride] = useState<boolean | null>(null)
+  const [page, setPage] = useState(1)
+
+  const activeCount = useMemo(
+    () => tokens.filter((row) => row.status === "active").length,
+    [tokens]
+  )
+
+  // Tokens arrive after mount, so the default can only be resolved once they
+  // load: an org with live links opens, a fresh org with none stays closed.
+  const isOpen = openOverride ?? activeCount > 0
+  const contentVisible = !collapsible || isOpen
+
+  const pageCount = Math.max(1, Math.ceil(tokens.length / PAGE_SIZE))
+  const pagedTokens = tokens.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+
+  // Revoking the last row on the final page (or the 7-day window dropping
+  // rows) can strand `page` past the end, which would render an empty table.
+  useEffect(() => {
+    setPage((prev) => Math.min(prev, pageCount))
+  }, [pageCount])
 
   const pushToast = useCallback((next: Exclude<Toast, null>) => {
     setToast(next)
@@ -158,8 +208,8 @@ export function InviteManagement({
       ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
       : "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300"
 
-  return (
-    <div className="flex flex-col gap-4 rounded-xl border border-slate-200/70 bg-slate-50/60 p-4 dark:border-slate-800 dark:bg-slate-950/40">
+  const header = (
+    <>
       <div className="flex items-start gap-3">
         <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-blue-500/15 text-blue-700 dark:text-blue-300">
           <Lock className="size-4" />
@@ -169,12 +219,43 @@ export function InviteManagement({
             Invitații
           </h3>
           <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-            Permite membrilor noi să se alăture organizației printr-un link.
+            Permite membrilor noi să se alăture{" "}
+            {orgName?.trim() ? orgName : "organizației"} printr-un link.
           </p>
         </div>
       </div>
 
-      {isSuperAdmin ? (
+      <div className="flex shrink-0 items-center gap-2">
+        {activeCount > 0 ? (
+          <Badge variant="secondary">{activeCount} active</Badge>
+        ) : null}
+        {collapsible ? (
+          <ChevronDown
+            className={`size-4 text-slate-400 transition-transform duration-200 ${
+              isOpen ? "rotate-180" : ""
+            }`}
+          />
+        ) : null}
+      </div>
+    </>
+  )
+
+  return (
+    <div className="flex flex-col gap-4 rounded-xl border border-slate-200/70 bg-slate-50/60 p-4 dark:border-slate-800 dark:bg-slate-950/40">
+      {collapsible ? (
+        <button
+          type="button"
+          onClick={() => setOpenOverride(!isOpen)}
+          aria-expanded={isOpen}
+          className="flex w-full items-center justify-between gap-3 text-left"
+        >
+          {header}
+        </button>
+      ) : (
+        <div className="flex items-center justify-between gap-3">{header}</div>
+      )}
+
+      {contentVisible && isSuperAdmin ? (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200/70 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-900">
           <span className="text-sm text-slate-700 dark:text-slate-200">
             Activează invite links pentru această organizație
@@ -198,7 +279,7 @@ export function InviteManagement({
         </div>
       ) : null}
 
-      {!inviteEnabled ? (
+      {!contentVisible ? null : !inviteEnabled ? (
         <div className="rounded-lg border border-slate-200/70 bg-slate-100/70 px-3 py-3 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400">
           <p>Invite links sunt dezactivate pentru această organizație.</p>
           {isSuperAdmin ? (
@@ -209,7 +290,13 @@ export function InviteManagement({
         </div>
       ) : (
         <div className="flex flex-col gap-3">
-          <div className="flex justify-end">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {activeCount >= ACTIVE_LINKS_NUDGE_THRESHOLD ? (
+              <p className="mr-auto max-w-md text-[11px] text-amber-600 dark:text-amber-400">
+                Ai {activeCount} linkuri active. Revocă-le pe cele neutilizate
+                înainte de a genera altele.
+              </p>
+            ) : null}
             <Button
               type="button"
               size="sm"
@@ -249,11 +336,11 @@ export function InviteManagement({
                       colSpan={5}
                       className="px-3 py-8 text-center text-sm text-slate-500 dark:text-slate-400"
                     >
-                      Nu există linkuri generate încă.
+                      Nu există linkuri active sau generate în ultimele 7 zile.
                     </td>
                   </tr>
                 ) : (
-                  tokens.map((row) => {
+                  pagedTokens.map((row) => {
                     const badge = STATUS_BADGE[row.status]
                     return (
                       <tr
@@ -319,6 +406,33 @@ export function InviteManagement({
               </tbody>
             </table>
           </div>
+
+          {pageCount > 1 ? (
+            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+              <p>
+                Pagina {page} din {pageCount} · {tokens.length}{" "}
+                {tokens.length === 1 ? "link" : "linkuri"}
+              </p>
+              <div className="inline-flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page <= 1}
+                  className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-600 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                >
+                  <ChevronLeft className="size-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                  disabled={page >= pageCount}
+                  className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-600 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                >
+                  <ChevronRight className="size-4" />
+                </button>
+              </div>
+            </div>
+          ) : null}
 
           <p className="text-[11px] text-slate-400 dark:text-slate-500">
             <Link2 className="mr-1 inline size-3" />

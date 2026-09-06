@@ -195,23 +195,6 @@ export default async function MembersInvitesPage({
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Invitații</CardTitle>
-              <CardDescription>
-                Generează linkuri de invitație pentru a adăuga membri direct în{" "}
-                {orgData.nume || "organizație"}.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <InviteManagement
-                orgId={orgData.id}
-                inviteLinksEnabled={orgData.invite_links_enabled}
-                isSuperAdmin={mode === "super_admin"}
-              />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
               <CardTitle className="text-base">Cereri de aderare</CardTitle>
               <CardDescription>
                 Aprobă sau respinge utilizatorii care vor să se alăture
@@ -233,6 +216,22 @@ export default async function MembersInvitesPage({
               ) : (
                 <JoinRequestsList orgId={orgData.id} requests={requests} />
               )}
+            </CardContent>
+          </Card>
+
+          {/* No CardHeader here on purpose: InviteManagement renders its own
+              header as the collapse trigger (title + active badge + chevron),
+              so a CardTitle would duplicate it. Card + CardContent still match
+              the chrome and padding of the sections above. */}
+          <Card>
+            <CardContent>
+              <InviteManagement
+                orgId={orgData.id}
+                inviteLinksEnabled={orgData.invite_links_enabled}
+                isSuperAdmin={mode === "super_admin"}
+                collapsible
+                orgName={orgData.nume}
+              />
             </CardContent>
           </Card>
         </div>
