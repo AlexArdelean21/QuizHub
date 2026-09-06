@@ -23,7 +23,6 @@ import {
 import { cn } from "@/lib/utils"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import type { AppRole } from "@/lib/auth/roles"
-import { SwipeNavigator } from "@/components/swipe-navigator"
 
 type Theme = "light" | "dark"
 
@@ -539,7 +538,7 @@ export function AdminLayoutShell({
       {/* pt-2 replaces the removed mobile header's spacing; pb-20 clears the
           bottom tab bar, which now runs everywhere below lg. */}
       <main className="min-h-screen pb-20 pt-2 lg:pb-0 lg:pt-0">
-        <SwipeNavigator>{children}</SwipeNavigator>
+        {children}
       </main>
       <AdminBottomTabBar
         isSuperAdmin={isSuperAdmin}
