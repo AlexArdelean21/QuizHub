@@ -18,8 +18,6 @@ export type StudentStatsRow = {
   rata_trecere_pct: number | null
   ultima_activitate: string | null
   nivel_pregatire_pct: number | null
-  examene_participate: number
-  examene_acces: number
   timp_dedicat_secunde: number
   total_count: number
 }

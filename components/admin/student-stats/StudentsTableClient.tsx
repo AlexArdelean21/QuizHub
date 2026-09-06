@@ -1,12 +1,13 @@
 "use client"
 
 import { useMemo } from "react"
+import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { formatDistanceToNow } from "date-fns"
 import { ro } from "date-fns/locale"
-import { CircleHelp } from "lucide-react"
-import { DataTable, type Column } from "@/components/ui/data-table"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { ChevronLeft, ChevronRight } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { DataTable, useIsDesktop, type Column } from "@/components/ui/data-table"
 import { cn } from "@/lib/utils"
 import type { StudentStatsRow } from "@/lib/student-stats/types"
 
@@ -42,6 +43,119 @@ function formatDuration(secs: number): string {
   return m ? `${h}h ${m}m` : `${h}h`
 }
 
+function passRateClass(pct: number, thresholdPct: number | null) {
+  return pct >= (thresholdPct ?? 50)
+    ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+    : "bg-rose-500/15 text-rose-700 dark:text-rose-300"
+}
+
+// Sub-640px stand-in for the DataTable: the eight columns don't survive a
+// phone width, so each student becomes a card with the same figures in a 2x2
+// grid. Shared by the students list and the peer-admins list.
+function StudentCardList({
+  rows,
+  emptyTitle,
+  examPassThresholdPct,
+  onSelect,
+}: {
+  rows: StudentStatsRow[]
+  emptyTitle: string
+  examPassThresholdPct: number | null
+  onSelect: ((row: StudentStatsRow) => void) | null
+}) {
+  if (rows.length === 0) {
+    return <p className="py-8 text-center text-sm text-muted-foreground">{emptyTitle}</p>
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {rows.map((row) => (
+        <div key={row.user_id} className="rounded-xl border border-border bg-card p-4">
+          <div className="mb-3 flex items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium text-foreground">
+                {row.nume ?? "—"}
+              </p>
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                {row.email ?? "—"}
+              </p>
+            </div>
+            <div className="shrink-0 rounded-md border border-border bg-muted/30 px-2.5 py-1 text-sm font-medium tabular-nums text-foreground">
+              {formatPercent(row.scor_mediu)}
+            </div>
+          </div>
+
+          <div className="mb-3 grid grid-cols-2 gap-2">
+            <div className="rounded-lg bg-muted/30 px-3 py-2">
+              <p className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                Simulări
+              </p>
+              <p className="text-sm font-medium tabular-nums text-foreground">
+                {row.simulari_finalizate}
+              </p>
+            </div>
+            <div className="rounded-lg bg-muted/30 px-3 py-2">
+              <p className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                Rată trecere
+              </p>
+              {row.rata_trecere_pct == null ? (
+                <p className="text-sm font-medium text-muted-foreground">—</p>
+              ) : (
+                <span
+                  className={cn(
+                    "inline-flex rounded-full px-2 py-0.5 text-xs font-medium",
+                    passRateClass(row.rata_trecere_pct, examPassThresholdPct),
+                  )}
+                >
+                  {formatPercent(row.rata_trecere_pct)}
+                </span>
+              )}
+            </div>
+            <div className="rounded-lg bg-muted/30 px-3 py-2">
+              <p className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                Nivel pregătire
+              </p>
+              <p className="text-sm font-medium tabular-nums text-foreground">
+                {formatPercent(row.nivel_pregatire_pct)}
+              </p>
+              <div className="mt-1 h-1.5 w-full rounded-full bg-muted">
+                <div
+                  className="h-1.5 rounded-full bg-primary transition-all"
+                  style={{
+                    width: `${Math.max(0, Math.min(100, row.nivel_pregatire_pct ?? 0))}%`,
+                  }}
+                />
+              </div>
+            </div>
+            <div className="rounded-lg bg-muted/30 px-3 py-2">
+              <p className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                Timp dedicat
+              </p>
+              <p className="text-sm font-medium text-foreground">
+                {formatDuration(row.timp_dedicat_secunde)}
+              </p>
+            </div>
+          </div>
+
+          <p className="mb-3 text-xs text-muted-foreground">
+            Ultima activitate: {relativeTime(row.ultima_activitate)}
+          </p>
+
+          {onSelect ? (
+            <button
+              type="button"
+              onClick={() => onSelect(row)}
+              className="w-full rounded-lg border border-border py-2 text-xs text-muted-foreground transition hover:bg-muted/30"
+            >
+              Vezi detalii →
+            </button>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export function StudentsTableClient({
   rows,
   totalCount,
@@ -57,6 +171,14 @@ export function StudentsTableClient({
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
+  const isDesktop = useIsDesktop()
+
+  // Drilling into a student needs the exam in the query string, so without a
+  // selected exam the row/card simply isn't clickable — same rule both layouts.
+  const openStudent = examenId
+    ? (row: StudentStatsRow) =>
+        router.push(`/dashboard/admin/elevi/${row.user_id}?examen_id=${examenId}`)
+    : null
 
   const buildHref = ({
     page: nextPage,
@@ -80,6 +202,8 @@ export function StudentsTableClient({
     const query = params.toString()
     return query ? `${pathname}?${query}` : pathname
   }
+
+  const pageCount = Math.max(1, Math.ceil(totalCount / pageSize))
 
   const columns = useMemo<Column<StudentStatsRow>[]>(
     () => [
@@ -167,31 +291,6 @@ export function StudentsTableClient({
         },
       },
       {
-        key: "examene",
-        header: (
-          <span className="inline-flex items-center gap-1">
-            Activitate examene
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex text-muted-foreground hover:text-foreground">
-                  <CircleHelp className="size-3.5" />
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>
-                Examene participate / examene cu acces in aceasta organizatie.
-              </TooltipContent>
-            </Tooltip>
-          </span>
-        ),
-        align: "center",
-        minWidth: 160,
-        render: (row) => (
-          <span className="tabular-nums">
-            {row.examene_participate} / {row.examene_acces}
-          </span>
-        ),
-      },
-      {
         key: "timp",
         header: "Timp dedicat",
         sortable: true,
@@ -225,50 +324,96 @@ export function StudentsTableClient({
           <p className="mb-3 text-xs text-muted-foreground">
             Org admini din organizația ta care au activat partajarea statisticilor.
           </p>
-          <DataTable
-            rows={peerAdmins}
-            columns={columns}
-            totalCount={peerAdmins.length}
-            pageSize={peerAdmins.length || 1}
-            currentPage={1}
-            currentSort={currentSort}
-            currentSearch={currentSearch}
-            emptyState={{ title: "—" }}
-            availableSortKeys={[]}
-            buildHref={() => "#"}
-            onRowClick={(row) => {
-              if (!examenId) return
-              router.push(`/dashboard/admin/elevi/${row.user_id}?examen_id=${examenId}`)
-            }}
-          />
+          {isDesktop ? (
+            <DataTable
+              rows={peerAdmins}
+              columns={columns}
+              totalCount={peerAdmins.length}
+              pageSize={peerAdmins.length || 1}
+              currentPage={1}
+              currentSort={currentSort}
+              currentSearch={currentSearch}
+              emptyState={{ title: "—" }}
+              availableSortKeys={[]}
+              buildHref={() => "#"}
+              onRowClick={openStudent ?? undefined}
+            />
+          ) : (
+            <StudentCardList
+              rows={peerAdmins}
+              emptyTitle="—"
+              examPassThresholdPct={examPassThresholdPct}
+              onSelect={openStudent}
+            />
+          )}
         </div>
       ) : null}
 
-      <DataTable
-        key={currentSearch}
-        rows={rows}
-        columns={columns}
-        totalCount={totalCount}
-        pageSize={pageSize}
-        currentPage={page}
-        currentSort={currentSort}
-        currentSearch={currentSearch}
-        emptyState={emptyState}
-        availableSortKeys={[
-          "nume_asc",
-          "nume_desc",
-          "scor_desc",
-          "scor_asc",
-          "simulari_desc",
-          "timp_desc",
-          "ultima_activitate_desc",
-        ]}
-        buildHref={buildHref}
-        onRowClick={(row) => {
-          if (!examenId) return
-          router.push(`/dashboard/admin/elevi/${row.user_id}?examen_id=${examenId}`)
-        }}
-      />
+      {isDesktop ? (
+        <DataTable
+          key={currentSearch}
+          rows={rows}
+          columns={columns}
+          totalCount={totalCount}
+          pageSize={pageSize}
+          currentPage={page}
+          currentSort={currentSort}
+          currentSearch={currentSearch}
+          emptyState={emptyState}
+          availableSortKeys={[
+            "nume_asc",
+            "nume_desc",
+            "scor_desc",
+            "scor_asc",
+            "simulari_desc",
+            "timp_desc",
+            "ultima_activitate_desc",
+          ]}
+          buildHref={buildHref}
+          onRowClick={openStudent ?? undefined}
+        />
+      ) : (
+        <div className="flex flex-col gap-3">
+          <StudentCardList
+            rows={rows}
+            emptyTitle={emptyState.title}
+            examPassThresholdPct={examPassThresholdPct}
+            onSelect={openStudent}
+          />
+
+          {/* The list is paginated server-side, so the cards need their own
+              controls — otherwise mobile is stuck on the first page. */}
+          {totalCount > pageSize ? (
+            <div className="flex items-center justify-between border-t pt-3 text-sm">
+              <p className="text-muted-foreground">
+                Pagina {Math.min(page, pageCount)} din {pageCount} · {totalCount} rezultate
+              </p>
+              <div className="flex items-center gap-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  asChild
+                  className={cn(page <= 1 && "pointer-events-none opacity-50")}
+                >
+                  <Link href={buildHref({ page: page - 1 })} aria-label="Pagina anterioară">
+                    <ChevronLeft className="size-4" />
+                  </Link>
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  asChild
+                  className={cn(page >= pageCount && "pointer-events-none opacity-50")}
+                >
+                  <Link href={buildHref({ page: page + 1 })} aria-label="Pagina următoare">
+                    <ChevronRight className="size-4" />
+                  </Link>
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      )}
     </>
   )
 }
