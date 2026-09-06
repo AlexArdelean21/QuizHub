@@ -14,7 +14,8 @@ import type {
   AdminUserRow,
 } from "@/app/admin/actions"
 import type { AppRole } from "@/lib/auth/roles"
-import { DataTable, type Column } from "@/components/ui/data-table"
+import { DataTable, useIsDesktop, type Column } from "@/components/ui/data-table"
+import { parseNumericInput } from "@/lib/utils"
 
 // Tip intern pentru rândul de tabel — oglindește AdminUserRow + câmpuri derivate
 type UserTableRow = {
@@ -64,6 +65,9 @@ const ROLE_BADGE: Record<AppRole, string> = {
 
 const UNASSIGNED_KEY = "__unassigned__"
 
+/** Used when the days field is left empty, and shown as its placeholder. */
+const DEFAULT_ACCESS_DAYS = 30
+
 export function UsersTable({
   profiles,
   examene,
@@ -74,10 +78,15 @@ export function UsersTable({
   currentUserId,
   orgFilter,
 }: UsersTableProps) {
+  // Same 640px breakpoint the DataTable uses for its own pinning behaviour, so
+  // the two layouts hand over at exactly the same point.
+  const isDesktop = useIsDesktop()
   const [isPending, startTransition] = useTransition()
   const [pendingAction, setPendingAction] = useState<PendingAction>(null)
   const [selectedExamByUser, setSelectedExamByUser] = useState<Record<string, number>>({})
-  const [daysByUser, setDaysByUser] = useState<Record<string, number>>({})
+  // undefined = the admin cleared the field; the grant falls back to
+  // DEFAULT_ACCESS_DAYS so an empty box still means "30 zile".
+  const [daysByUser, setDaysByUser] = useState<Record<string, number | undefined>>({})
   const [selectedOrg, setSelectedOrg] = useState<string>("")
   const [deleteAccountTarget, setDeleteAccountTarget] = useState<{
     id: string
@@ -112,7 +121,13 @@ export function UsersTable({
 
   const handleGrantAccess = (userId: string) => {
     const selectedExamId = selectedExamByUser[userId] ?? defaultExamId
-    const selectedDays = Math.max(1, Number(daysByUser[userId] ?? 30))
+    const rawDays = daysByUser[userId]
+    // An empty or nonsensical field is treated as the default rather than
+    // blocking the admin mid-action.
+    const selectedDays =
+      rawDays == null || !Number.isFinite(rawDays) || rawDays < 1
+        ? DEFAULT_ACCESS_DAYS
+        : Math.floor(rawDays)
 
     if (!selectedExamId) {
       window.alert("Nu există examene disponibile.")
@@ -384,19 +399,26 @@ export function UsersTable({
                       ))
                     )}
                   </select>
-                  <input
-                    type="number"
-                    min={1}
-                    value={daysByUser[profile.id] ?? 30}
-                    onChange={(event) =>
-                      setDaysByUser((prev) => ({
-                        ...prev,
-                        [profile.id]: Number(event.target.value),
-                      }))
-                    }
-                    disabled={isPending}
-                    className="w-20 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                  />
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      min={1}
+                      value={daysByUser[profile.id] ?? ""}
+                      placeholder={String(DEFAULT_ACCESS_DAYS)}
+                      onChange={(event) =>
+                        setDaysByUser((prev) => ({
+                          ...prev,
+                          [profile.id]: parseNumericInput(event.target.value),
+                        }))
+                      }
+                      disabled={isPending}
+                      aria-label="Zile acces"
+                      className="w-16 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    />
+                    <span className="whitespace-nowrap text-xs text-slate-500 dark:text-slate-400">
+                      zile
+                    </span>
+                  </div>
                   <button
                     type="button"
                     onClick={() => handleGrantAccess(profile.id)}
@@ -493,15 +515,215 @@ export function UsersTable({
         </div>
       )}
 
-      <DataTable
-        rows={userRows}
-        columns={columns}
-        totalCount={userRows.length}
-        pageSize={userRows.length || 1}
-        currentPage={1}
-        buildHref={() => "#"}
-        emptyState={{ title: "Nu am găsit utilizatori." }}
-      />
+      {isDesktop ? (
+        <DataTable
+          rows={userRows}
+          columns={columns}
+          totalCount={userRows.length}
+          pageSize={userRows.length || 1}
+          currentPage={1}
+          buildHref={() => "#"}
+          emptyState={{ title: "Nu am găsit utilizatori." }}
+        />
+      ) : (
+        <div className="flex flex-col gap-3">
+          {userRows.length === 0 ? (
+            <p className="py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+              Nu am găsit utilizatori.
+            </p>
+          ) : null}
+
+          {userRows.map(
+            ({
+              profile,
+              orgName,
+              isCurrentUser,
+              canEditRole,
+              canKick,
+              canDeleteAccount,
+              isAdminRole,
+              userAccess,
+            }) => (
+              <div
+                key={profile.id}
+                className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-slate-900 dark:text-white">
+                      {profile.email ?? "—"}
+                      {isCurrentUser && (
+                        <span className="ml-2 inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">
+                          TU
+                        </span>
+                      )}
+                    </p>
+                    {profile.nume ? (
+                      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                        {profile.nume}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  {canEditRole ? (
+                    <select
+                      value={profile.role}
+                      onChange={(event) =>
+                        handleChangeRole(profile.id, event.target.value as AppRole)
+                      }
+                      disabled={isPending}
+                      aria-label="Rol utilizator"
+                      className="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    >
+                      <option value="user">User</option>
+                      <option value="org_admin">Org Admin</option>
+                      {isSuperAdmin && <option value="super_admin">Super Admin</option>}
+                    </select>
+                  ) : (
+                    <span
+                      className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${ROLE_BADGE[profile.role]}`}
+                    >
+                      {ROLE_LABELS[profile.role]}
+                    </span>
+                  )}
+                </div>
+
+                {isSuperAdmin && orgName ? (
+                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                    Org:{" "}
+                    <span className="font-medium text-slate-700 dark:text-slate-300">
+                      {orgName}
+                    </span>
+                  </p>
+                ) : null}
+
+                <div className="mt-2">
+                  {isAdminRole ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-2 py-0.5 text-[11px] font-medium text-violet-700 dark:text-violet-300">
+                      <ShieldCheck className="size-3" />
+                      Acces Admin
+                    </span>
+                  ) : userAccess.length > 0 ? (
+                    <div className="flex flex-wrap items-center gap-1">
+                      {userAccess.slice(0, 2).map((examName) => (
+                        <span
+                          key={`${profile.id}-${examName}`}
+                          className="max-w-full truncate rounded-md bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300"
+                        >
+                          {examName}
+                        </span>
+                      ))}
+                      {userAccess.length > 2 && (
+                        <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                          +{userAccess.length - 2} mai multe
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="inline-flex rounded-full bg-slate-200 px-2 py-0.5 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                      Fără acces
+                    </span>
+                  )}
+                </div>
+
+                {!isAdminRole && (
+                  <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
+                    <select
+                      value={selectedExamByUser[profile.id] ?? defaultExamId ?? ""}
+                      onChange={(event) =>
+                        setSelectedExamByUser((prev) => ({
+                          ...prev,
+                          [profile.id]: Number(event.target.value),
+                        }))
+                      }
+                      disabled={isPending || examene.length === 0}
+                      aria-label="Examen"
+                      className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-800 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    >
+                      {examene.length === 0 ? (
+                        <option value="">No exams</option>
+                      ) : (
+                        examene.map((exam) => (
+                          <option key={exam.id} value={exam.id}>
+                            {exam.nume_examen}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min={1}
+                        value={daysByUser[profile.id] ?? ""}
+                        placeholder={String(DEFAULT_ACCESS_DAYS)}
+                        onChange={(event) =>
+                          setDaysByUser((prev) => ({
+                            ...prev,
+                            [profile.id]: parseNumericInput(event.target.value),
+                          }))
+                        }
+                        disabled={isPending}
+                        aria-label="Zile acces"
+                        className="w-16 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-800 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                      />
+                      <span className="whitespace-nowrap text-[11px] text-slate-500 dark:text-slate-400">
+                        zile
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleGrantAccess(profile.id)}
+                      disabled={isPending || examene.length === 0}
+                      className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {pendingAction?.type === "grant" &&
+                      pendingAction.userId === profile.id
+                        ? "Se acordă..."
+                        : "Acordă acces"}
+                    </button>
+                  </div>
+                )}
+
+                {(canKick || canDeleteAccount) && (
+                  <div className="mt-2 flex flex-wrap gap-2 border-t border-slate-100 pt-2 dark:border-slate-800">
+                    {canKick && (
+                      <button
+                        type="button"
+                        onClick={() => handleKickFromOrg(profile.id, profile.email)}
+                        disabled={isPending}
+                        className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                      >
+                        <LogOut className="size-3" />
+                        {pendingAction?.type === "kick" &&
+                        pendingAction.userId === profile.id
+                          ? "Se scoate..."
+                          : "Scoate din org"}
+                      </button>
+                    )}
+                    {canDeleteAccount && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleDeleteAccountClick(
+                            profile.id,
+                            profile.email,
+                            profile.nume
+                          )
+                        }
+                        disabled={isPending}
+                        className="flex items-center gap-1.5 rounded-lg border border-rose-200 px-3 py-1.5 text-xs text-rose-600 hover:bg-rose-50 disabled:opacity-50 dark:border-rose-800 dark:text-rose-400 dark:hover:bg-rose-950"
+                      >
+                        <Trash2 className="size-3" />
+                        Șterge cont
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          )}
+        </div>
+      )}
 
       {deleteAccountTarget ? (
         <div className="fixed inset-0 z-[95] flex items-center justify-center p-4">

@@ -14,6 +14,7 @@ import {
   Trash2,
   Upload,
 } from "lucide-react"
+import { parseNumericInput } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -102,7 +103,14 @@ export function MyExamsManager({
   const [importTarget, setImportTarget] = useState<PersonalExamItem | null>(null)
 
   const [settingsTarget, setSettingsTarget] = useState<PersonalExamItem | null>(null)
-  const [settingsDraft, setSettingsDraft] = useState({
+  // The numeric fields are `undefined` while cleared so the inputs can be
+  // emptied; handleSaveSettings falls back to the exam's current values.
+  const [settingsDraft, setSettingsDraft] = useState<{
+    nume_examen: string
+    prag_trecere: number | undefined
+    intrebari_simulare: number | undefined
+    durata_minute: number | undefined
+  }>({
     nume_examen: "",
     prag_trecere: 18,
     intrebari_simulare: 25,
@@ -349,10 +357,13 @@ export function MyExamsManager({
         }
       }
       if (settingsTarget.questionCount > 0) {
+        // A cleared field means "leave this as it is", so it resolves back to
+        // the exam's stored value instead of a hardcoded default.
         const rulesResult = await updatePersonalExamRules(examId, {
-          prag_trecere: settingsDraft.prag_trecere,
-          intrebari_simulare: settingsDraft.intrebari_simulare,
-          durata_minute: settingsDraft.durata_minute,
+          prag_trecere: settingsDraft.prag_trecere ?? settingsTarget.pragTrecere,
+          intrebari_simulare:
+            settingsDraft.intrebari_simulare ?? settingsTarget.intrebariSimulare,
+          durata_minute: settingsDraft.durata_minute ?? settingsTarget.durataMinute,
         })
         if (!rulesResult.success) {
           setSettingsError(rulesResult.error)
@@ -890,11 +901,12 @@ export function MyExamsManager({
                   <input
                     type="number"
                     min={1}
-                    value={settingsDraft.intrebari_simulare}
+                    value={settingsDraft.intrebari_simulare ?? ""}
+                    placeholder={String(settingsTarget.intrebariSimulare)}
                     onChange={(event) =>
                       setSettingsDraft((prev) => ({
                         ...prev,
-                        intrebari_simulare: Number(event.target.value),
+                        intrebari_simulare: parseNumericInput(event.target.value),
                       }))
                     }
                     disabled={isPending || settingsTarget.questionCount === 0}
@@ -906,11 +918,12 @@ export function MyExamsManager({
                   <input
                     type="number"
                     min={1}
-                    value={settingsDraft.durata_minute}
+                    value={settingsDraft.durata_minute ?? ""}
+                    placeholder={String(settingsTarget.durataMinute)}
                     onChange={(event) =>
                       setSettingsDraft((prev) => ({
                         ...prev,
-                        durata_minute: Number(event.target.value),
+                        durata_minute: parseNumericInput(event.target.value),
                       }))
                     }
                     disabled={isPending || settingsTarget.questionCount === 0}
@@ -922,11 +935,12 @@ export function MyExamsManager({
                   <input
                     type="number"
                     min={1}
-                    value={settingsDraft.prag_trecere}
+                    value={settingsDraft.prag_trecere ?? ""}
+                    placeholder={String(settingsTarget.pragTrecere)}
                     onChange={(event) =>
                       setSettingsDraft((prev) => ({
                         ...prev,
-                        prag_trecere: Number(event.target.value),
+                        prag_trecere: parseNumericInput(event.target.value),
                       }))
                     }
                     disabled={isPending || settingsTarget.questionCount === 0}

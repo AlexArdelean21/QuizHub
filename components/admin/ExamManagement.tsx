@@ -31,6 +31,7 @@ import {
   type AdminOrganizationRow,
   type PreviewRow,
 } from "@/app/admin/actions"
+import { parseNumericInput } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -105,7 +106,14 @@ export function ExamManagement({
   const [deleteConfirmationInput, setDeleteConfirmationInput] = useState("")
   const [questionEditorExam, setQuestionEditorExam] = useState<AdminExamRow | null>(null)
   const [settingsTargetExam, setSettingsTargetExam] = useState<AdminExamRow | null>(null)
-  const [settingsDraft, setSettingsDraft] = useState({
+  // The numeric fields are `undefined` while cleared so the inputs can be
+  // emptied; handleSaveSettings falls back to the exam's current values.
+  const [settingsDraft, setSettingsDraft] = useState<{
+    nume_examen: string
+    prag_trecere: number | undefined
+    intrebari_simulare: number | undefined
+    durata_minute: number | undefined
+  }>({
     nume_examen: "",
     prag_trecere: 18,
     intrebari_simulare: 25,
@@ -486,18 +494,25 @@ export function ExamManagement({
       return
     }
 
+    // A cleared field means "leave this as it is", so it resolves back to the
+    // exam's stored value instead of a hardcoded default.
+    const pragTrecere = settingsDraft.prag_trecere ?? settingsTargetExam.prag_trecere
+    const intrebariSimulare =
+      settingsDraft.intrebari_simulare ?? settingsTargetExam.intrebari_simulare
+    const durataMinute = settingsDraft.durata_minute ?? settingsTargetExam.durata_minute
+
     const questionCount = settingsTargetExam.question_count
-    if (settingsDraft.intrebari_simulare < 1 || settingsDraft.prag_trecere < 1) {
+    if (intrebariSimulare < 1 || pragTrecere < 1 || durataMinute < 1) {
       setSettingsError("Valorile trebuie să fie cel puțin 1.")
       return
     }
-    if (settingsDraft.intrebari_simulare > questionCount) {
+    if (intrebariSimulare > questionCount) {
       setSettingsError(
         `Numărul de întrebări din simulare nu poate depăși numărul de întrebări din examen (${questionCount}).`,
       )
       return
     }
-    if (settingsDraft.prag_trecere > settingsDraft.intrebari_simulare) {
+    if (pragTrecere > intrebariSimulare) {
       setSettingsError("Pragul de trecere nu poate depăși numărul de întrebări din simulare.")
       return
     }
@@ -513,9 +528,9 @@ export function ExamManagement({
           }
 
           await updateExamRules(settingsTargetExam.id, {
-            prag_trecere: settingsDraft.prag_trecere,
-            intrebari_simulare: settingsDraft.intrebari_simulare,
-            durata_minute: settingsDraft.durata_minute,
+            prag_trecere: pragTrecere,
+            intrebari_simulare: intrebariSimulare,
+            durata_minute: durataMinute,
           })
 
           pushToast({
@@ -1711,11 +1726,12 @@ c) 100 Hz`}
                 <input
                   type="number"
                   min={1}
-                  value={settingsDraft.intrebari_simulare}
+                  value={settingsDraft.intrebari_simulare ?? ""}
+                  placeholder={String(settingsTargetExam.intrebari_simulare)}
                   onChange={(event) =>
                     setSettingsDraft((prev) => ({
                       ...prev,
-                      intrebari_simulare: Number(event.target.value),
+                      intrebari_simulare: parseNumericInput(event.target.value),
                     }))
                   }
                   disabled={savingRules}
@@ -1727,11 +1743,12 @@ c) 100 Hz`}
                 <input
                   type="number"
                   min={1}
-                  value={settingsDraft.durata_minute}
+                  value={settingsDraft.durata_minute ?? ""}
+                  placeholder={String(settingsTargetExam.durata_minute)}
                   onChange={(event) =>
                     setSettingsDraft((prev) => ({
                       ...prev,
-                      durata_minute: Number(event.target.value),
+                      durata_minute: parseNumericInput(event.target.value),
                     }))
                   }
                   disabled={savingRules}
@@ -1743,11 +1760,12 @@ c) 100 Hz`}
                 <input
                   type="number"
                   min={1}
-                  value={settingsDraft.prag_trecere}
+                  value={settingsDraft.prag_trecere ?? ""}
+                  placeholder={String(settingsTargetExam.prag_trecere)}
                   onChange={(event) =>
                     setSettingsDraft((prev) => ({
                       ...prev,
-                      prag_trecere: Number(event.target.value),
+                      prag_trecere: parseNumericInput(event.target.value),
                     }))
                   }
                   disabled={savingRules}
